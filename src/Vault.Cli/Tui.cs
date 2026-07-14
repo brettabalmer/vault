@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Spectre.Console;
 using Spectre.Console.Rendering;
@@ -146,6 +147,7 @@ public sealed class Tui
         {
             case 'e': _focus = Pane.Vars; return Act.EditModal;
             case 'r': _reveal = !_reveal; return Act.Continue;
+            case 'y': CopySelected(); return Act.Continue;
             case '/': return Act.SearchModal;
             case 'p': _profileIdx = (_profileIdx + 1) % _profiles.Length; Reload(); _status = $"profile → [bold]{_profiles[_profileIdx]}[/]"; return Act.Continue;
             case 'c': RunCheck(); return Act.Continue;
@@ -255,7 +257,7 @@ public sealed class Tui
 
     private IRenderable FooterPanel()
     {
-        var keys = "[grey]↑↓[/] move  [grey]←→/Tab[/] pane  [grey]Enter/e[/] edit  [grey]r[/] "
+        var keys = "[grey]↑↓[/] move  [grey]←→/Tab[/] pane  [grey]Enter/e[/] edit  [grey]y[/] copy  [grey]r[/] "
             + (_reveal ? "[green]hide[/]" : "reveal") + "  [grey]/[/] search  [grey]p[/] profile  [grey]c[/] check  [grey]q[/] quit";
         var line1 = new Markup($"profile [bold]{Markup.Escape(_ctx.Profile)}[/]   " + (_status.Length > 0 ? _status : "[grey]ready[/]"));
         return new Panel(new Rows(line1, new Markup(keys))).Expand().Border(BoxBorder.Rounded).BorderColor(Color.Grey);
@@ -282,10 +284,10 @@ public sealed class Tui
         AnsiConsole.MarkupLine($"[bold]{Markup.Escape(v.Key)}[/] [grey]({Markup.Escape(v.Category)})[/]");
         AnsiConsole.MarkupLine($"[grey]{Markup.Escape(v.Description)}[/]");
         if (v.Example is not null) AnsiConsole.MarkupLine($"[grey]example: {Markup.Escape(v.Example)}[/]");
-        AnsiConsole.MarkupLine($"[grey]current:[/] {(status.Value is null ? "[grey](unset)[/]" : Markup.Escape(status.Value))}");
-        AnsiConsole.Markup("[grey]new value ([/]Enter[grey]=save, empty+[/]Enter[grey]=clear, [/]Esc[grey]=cancel):[/] ");
+        AnsiConsole.Markup("[grey]value ([/]Enter[grey]=save, backspace to empty=clear, [/]Esc[grey]=cancel):[/] ");
 
-        var input = ReadLineOrEscape();
+        // Prefill with the current value: edit it, or backspace it all away and Enter to clear.
+        var input = ReadLineOrEscape(status.Value ?? "");
         if (input is null) { _status = "[grey]edit cancelled[/]"; return; }
         if (input.Length == 0)
         {
@@ -305,10 +307,11 @@ public sealed class Tui
         }
     }
 
-    /// <summary>A minimal line editor that supports Esc-to-cancel (returns null) and empty-Enter (returns "").</summary>
-    private static string? ReadLineOrEscape()
+    /// <summary>A minimal line editor prefilled with <paramref name="initial"/>. Esc → null (cancel); Enter → the buffer (empty = clear).</summary>
+    private static string? ReadLineOrEscape(string initial = "")
     {
-        var sb = new StringBuilder();
+        var sb = new StringBuilder(initial);
+        Console.Write(initial);
         while (true)
         {
             var key = Console.ReadKey(intercept: true);
@@ -343,6 +346,43 @@ public sealed class Tui
         _status = failures.Count == 0
             ? "[green]✓ check passed[/]"
             : $"[red]✗ {failures.Count} required/invalid[/]";
+    }
+
+    private void CopySelected()
+    {
+        var vars = VisibleVars();
+        if (_varIdx >= vars.Count) return;
+        var s = vars[_varIdx];
+        if (s.Value is null) { _status = $"[grey]{Markup.Escape(s.Var.Key)} is unset — nothing to copy[/]"; return; }
+        _status = CopyToClipboard(s.Value)
+            ? $"[green]copied {Markup.Escape(s.Var.Key)} to clipboard[/]"
+            : "[red]clipboard unavailable[/]";
+    }
+
+    /// <summary>Best-effort clipboard copy via the platform tool (pbcopy / clip / xclip|wl-copy).</summary>
+    private static bool CopyToClipboard(string text)
+    {
+        (string cmd, string args)[] candidates = OperatingSystem.IsMacOS()
+            ? new[] { ("pbcopy", "") }
+            : OperatingSystem.IsWindows()
+                ? new[] { ("clip", "") }
+                : new[] { ("wl-copy", ""), ("xclip", "-selection clipboard"), ("xsel", "--clipboard --input") };
+
+        foreach (var (cmd, args) in candidates)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo(cmd, args) { RedirectStandardInput = true, UseShellExecute = false };
+                using var p = Process.Start(psi);
+                if (p is null) continue;
+                p.StandardInput.Write(text);
+                p.StandardInput.Close();
+                p.WaitForExit();
+                if (p.ExitCode == 0) return true;
+            }
+            catch { /* try the next tool */ }
+        }
+        return false;
     }
 
     private void RestoreSelection(string key)
