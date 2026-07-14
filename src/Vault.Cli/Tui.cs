@@ -301,9 +301,10 @@ public sealed class Tui
             if (v.Example is not null) AnsiConsole.MarkupLine($"[grey]example: {Markup.Escape(v.Example)}[/]");
             if (v.Validate is not null) AnsiConsole.MarkupLine($"[grey]must match: {Markup.Escape(v.Validate)}[/]");
             if (error is not null) AnsiConsole.MarkupLine($"[red]{Markup.Escape(error)}[/]");
-            AnsiConsole.Markup("[grey]value ([/]Enter[grey]=save, backspace to empty=clear, [/]Esc[grey]=cancel):[/] ");
+            AnsiConsole.MarkupLine("[grey]←→ move · Home/End · Del · [/]Enter[grey]=save · empty=clear · [/]Esc[grey]=cancel[/]");
+            AnsiConsole.Markup("[grey]›[/] ");
 
-            var input = ReadLineOrEscape(current);
+            var input = ReadLineEditable(current);
             if (input is null) { _status = "[grey]edit cancelled[/]"; return; }
 
             if (input.Length == 0)
@@ -324,33 +325,68 @@ public sealed class Tui
         }
     }
 
-    /// <summary>A minimal line editor prefilled with <paramref name="initial"/>. Esc → null (cancel); Enter → the buffer (empty = clear).</summary>
-    private static string? ReadLineOrEscape(string initial = "")
+    /// <summary>
+    /// A single-line editor prefilled with <paramref name="initial"/>: ←/→ move the caret, Home/End jump,
+    /// Backspace/Delete remove, printable keys insert at the caret. Horizontally scrolls for values wider than
+    /// the terminal. Esc → null (cancel); Enter → the buffer (empty string = clear).
+    /// </summary>
+    private static string? ReadLineEditable(string initial)
     {
-        var sb = new StringBuilder(initial);
-        Console.Write(initial);
-        while (true)
+        var buf = new StringBuilder(initial);
+        int cursor = buf.Length;   // caret index within buf
+        int offset = 0;            // first visible char (horizontal scroll)
+        int baseLeft = Console.CursorLeft;
+        int baseTop = Console.CursorTop;
+        int Width() => Math.Max(8, Console.WindowWidth - baseLeft - 1);
+
+        void Render()
         {
-            var key = Console.ReadKey(intercept: true);
-            switch (key.Key)
+            int width = Width();
+            if (cursor < offset) offset = cursor;
+            else if (cursor - offset > width) offset = cursor - width;
+            int len = Math.Max(0, Math.Min(width, buf.Length - offset));
+            try
             {
-                case ConsoleKey.Enter: Console.WriteLine(); return sb.ToString();
-                case ConsoleKey.Escape: Console.WriteLine(); return null;
-                case ConsoleKey.Backspace:
-                    if (sb.Length > 0) { sb.Length--; Console.Write("\b \b"); }
-                    break;
-                default:
-                    if (!char.IsControl(key.KeyChar)) { sb.Append(key.KeyChar); Console.Write(key.KeyChar); }
-                    break;
+                Console.SetCursorPosition(baseLeft, baseTop);
+                Console.Write("\x1b[K");                    // clear to end of line
+                Console.Write(buf.ToString(offset, len));
+                Console.SetCursorPosition(baseLeft + (cursor - offset), baseTop);
+            }
+            catch (ArgumentOutOfRangeException) { /* window shrank mid-edit; skip this frame */ }
+        }
+
+        Console.Write("\x1b[?25h"); // show the caret while editing
+        try
+        {
+            Render();
+            while (true)
+            {
+                var key = Console.ReadKey(intercept: true);
+                switch (key.Key)
+                {
+                    case ConsoleKey.Enter: Console.WriteLine(); return buf.ToString();
+                    case ConsoleKey.Escape: Console.WriteLine(); return null;
+                    case ConsoleKey.LeftArrow: if (cursor > 0) cursor--; break;
+                    case ConsoleKey.RightArrow: if (cursor < buf.Length) cursor++; break;
+                    case ConsoleKey.Home: cursor = 0; break;
+                    case ConsoleKey.End: cursor = buf.Length; break;
+                    case ConsoleKey.Backspace: if (cursor > 0) buf.Remove(--cursor, 1); break;
+                    case ConsoleKey.Delete: if (cursor < buf.Length) buf.Remove(cursor, 1); break;
+                    default:
+                        if (!char.IsControl(key.KeyChar)) { buf.Insert(cursor, key.KeyChar); cursor++; }
+                        break;
+                }
+                Render();
             }
         }
+        finally { Console.Write("\x1b[?25l"); } // re-hide for the TUI
     }
 
     private void SearchPrompt()
     {
         AnsiConsole.Clear();
-        AnsiConsole.Markup("[grey]search keys ([/]Esc[grey]=cancel, empty=clear):[/] ");
-        var input = ReadLineOrEscape();
+        AnsiConsole.Markup("[grey]search ([/]Esc[grey]=cancel, empty=clear):[/] ");
+        var input = ReadLineEditable("");
         if (input is null) return; // cancelled — leave the current filter as-is
         _search = input;
         _focus = Pane.Vars;
