@@ -27,7 +27,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      - run: dotnet publish src/Vault.Cli/Vault.Cli.csproj -r ${{ matrix.rid }} -c Release -o dist
+      # Self-contained single-file (not NativeAOT): NativeAOT's link step fails on the macOS runners
+      # (System.Security.Cryptography's Apple/Swift backend + -ld_classic can't resolve Swift symbols).
+      # Self-contained is reliable across runners and still a standalone binary (no runtime prereq).
+      - run: >-
+          dotnet publish src/Vault.Cli/Vault.Cli.csproj -r ${{ matrix.rid }} -c Release
+          -p:PublishAot=false -p:PublishSingleFile=true -p:SelfContained=true
+          -p:StripSymbols=true -p:EnableCompressionInSingleFile=true -o dist
       - name: Package
         run: |
           cd dist
