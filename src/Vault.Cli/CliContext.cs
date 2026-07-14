@@ -1,0 +1,58 @@
+using Vault.Core;
+
+namespace Vault.Cli;
+
+/// <summary>
+/// Resolves the project's <c>vault/</c> directory (the folder holding <c>manifest.json</c>), the active
+/// profile, the manifest, and the decrypted vault map — lazily, so commands that don't need the key (like
+/// <c>keygen</c> or <c>--help</c>) never touch it.
+/// </summary>
+public sealed class CliContext
+{
+    public string VaultDir { get; }
+    public string Profile { get; }
+
+    private CliContext(string vaultDir, string profile)
+    {
+        VaultDir = vaultDir;
+        Profile = profile;
+    }
+
+    public string ManifestPath => Path.Combine(VaultDir, "manifest.json");
+
+    /// <summary>Find the nearest <c>vault/manifest.json</c> walking up from cwd (or <c>$VAULT_DIR</c>).</summary>
+    public static CliContext Discover(string profile)
+    {
+        var explicitDir = Environment.GetEnvironmentVariable("VAULT_DIR");
+        if (!string.IsNullOrWhiteSpace(explicitDir))
+            return new CliContext(Path.GetFullPath(explicitDir), profile);
+
+        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "vault", "manifest.json");
+            if (File.Exists(candidate))
+                return new CliContext(Path.Combine(dir.FullName, "vault"), profile);
+            dir = dir.Parent;
+        }
+        throw new CliError("No `vault/manifest.json` found in this directory or any parent. "
+            + "Set $VAULT_DIR or run from within a project that has one.");
+    }
+
+    private Manifest? _manifest;
+    public Manifest Manifest => _manifest ??= Manifest.Load(ManifestPath);
+
+    private byte[]? _key;
+    public byte[] Key => _key ??= KeyStore.Load();
+
+    public VaultFile ProfileFile => new(VaultDir, Profile);
+
+    /// <summary>Decrypt the active profile's values.</summary>
+    public SortedDictionary<string, string> ReadVault() => ProfileFile.Read(Key);
+}
+
+/// <summary>A user-facing error: printed as a clean message, exit code 1, no stack trace.</summary>
+public sealed class CliError : Exception
+{
+    public CliError(string message) : base(message) { }
+}

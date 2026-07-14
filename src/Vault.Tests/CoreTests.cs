@@ -1,0 +1,139 @@
+using System.Text.Json;
+using Vault.Core;
+using Xunit;
+
+namespace Vault.Tests;
+
+public class CryptoTests
+{
+    private static byte[] Key() => Convert.FromBase64String("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=");
+
+    [Fact]
+    public void RoundTrips()
+    {
+        var key = Key();
+        var plain = "A=1\nB=hello world\nC=has=equals;and;semis\n";
+        var enc = Crypto.Encrypt(plain, key);
+        Assert.Equal(plain, Crypto.Decrypt(enc, key));
+    }
+
+    [Fact]
+    public void FreshNoncePerEncrypt()
+    {
+        var key = Key();
+        Assert.NotEqual(Crypto.Encrypt("X=1", key), Crypto.Encrypt("X=1", key));
+    }
+
+    [Fact]
+    public void WrongKeyThrows()
+    {
+        var enc = Crypto.Encrypt("X=1", Key());
+        var other = new byte[32];
+        Assert.Throws<VaultCryptoException>(() => Crypto.Decrypt(enc, other));
+    }
+
+    [Fact]
+    public void TamperedCiphertextThrows()
+    {
+        var key = Key();
+        var enc = Crypto.Encrypt("X=secret", key);
+        var bytes = Convert.FromBase64String(enc);
+        bytes[^1] ^= 0xFF; // flip a tag byte
+        Assert.Throws<VaultCryptoException>(() => Crypto.Decrypt(Convert.ToBase64String(bytes), key));
+    }
+
+    [Fact]
+    public void ToleratesWhitespaceInBase64()
+    {
+        var key = Key();
+        var original = "X=1\nY=2";
+        var wrapped = string.Join("\n", Chunk(Crypto.Encrypt(original, key), 10));
+        Assert.Equal(original, Crypto.Decrypt(wrapped, key));
+    }
+
+    private static IEnumerable<string> Chunk(string s, int n)
+    {
+        for (int i = 0; i < s.Length; i += n) yield return s.Substring(i, Math.Min(n, s.Length - i));
+    }
+}
+
+public class EnvTextTests
+{
+    [Fact]
+    public void SplitsOnFirstEquals()
+    {
+        var m = EnvText.Parse("CONN=Endpoint=https://x;Key=abc==;\n# comment\n\nEMPTY=");
+        Assert.Equal("Endpoint=https://x;Key=abc==;", m["CONN"]);
+        Assert.Equal("", m["EMPTY"]);
+        Assert.False(m.ContainsKey("# comment"));
+    }
+
+    [Fact]
+    public void SerializeIsSortedAndRoundTrips()
+    {
+        var m = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["B"] = "2", ["A"] = "1" };
+        Assert.Equal("A=1\nB=2\n", EnvText.Serialize(m));
+        Assert.Equal(m, EnvText.Parse(EnvText.Serialize(m)));
+    }
+
+    [Theory]
+    [InlineData("GOOD_KEY1", true)]
+    [InlineData("_leading", true)]
+    [InlineData("1leading", false)]
+    [InlineData("has-dash", false)]
+    [InlineData("", false)]
+    public void KeyValidation(string key, bool valid) => Assert.Equal(valid, EnvText.IsValidKey(key));
+}
+
+/// <summary>Decrypts the committed testvectors and asserts against expected.json (the cross-language contract).</summary>
+public class ConformanceTests
+{
+    public static IEnumerable<object[]> Vectors()
+    {
+        var dir = Path.Combine(RepoRoot(), "testvectors");
+        foreach (var d in Directory.EnumerateDirectories(dir))
+            if (File.Exists(Path.Combine(d, "expected.json")))
+                yield return new object[] { d };
+    }
+
+    [Theory]
+    [MemberData(nameof(Vectors))]
+    public void DecryptsToExpected(string vectorDir)
+    {
+        var key = Convert.FromBase64String(File.ReadAllText(Path.Combine(vectorDir, "key.txt")).Trim());
+        using var expected = JsonDocument.Parse(File.ReadAllText(Path.Combine(vectorDir, "expected.json")));
+
+        // 1. raw decrypt
+        var vaultFile = new VaultFile(Path.Combine(vectorDir, "vault"), "local");
+        var got = vaultFile.Read(key);
+        foreach (var p in expected.RootElement.GetProperty("vault").EnumerateObject())
+            Assert.Equal(p.Value.GetString(), got[p.Name]);
+        Assert.Equal(expected.RootElement.GetProperty("vault").EnumerateObject().Count(), got.Count);
+
+        // 2. resolution
+        var manifest = Manifest.Load(Path.Combine(vectorDir, "vault", "manifest.json"));
+        var res = expected.RootElement.GetProperty("resolved");
+        var map = Resolve.ForPlatform(manifest, got, res.GetProperty("platform").GetString()!, res.GetProperty("profile").GetString()!);
+        foreach (var p in res.GetProperty("map").EnumerateObject())
+            Assert.Equal(p.Value.GetString(), map[p.Name]);
+        Assert.Equal(res.GetProperty("map").EnumerateObject().Count(), map.Count);
+    }
+
+    [Theory]
+    [MemberData(nameof(Vectors))]
+    public void TamperingFails(string vectorDir)
+    {
+        var key = Convert.FromBase64String(File.ReadAllText(Path.Combine(vectorDir, "key.txt")).Trim());
+        var encPath = Path.Combine(vectorDir, "vault", "local.enc");
+        var bytes = Convert.FromBase64String(new string(File.ReadAllText(encPath).Where(c => !char.IsWhiteSpace(c)).ToArray()));
+        bytes[bytes.Length / 2] ^= 0x01;
+        Assert.Throws<VaultCryptoException>(() => Crypto.Decrypt(Convert.ToBase64String(bytes), key));
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "FORMAT.md"))) dir = dir.Parent;
+        return dir?.FullName ?? throw new DirectoryNotFoundException("Could not locate repo root (FORMAT.md).");
+    }
+}

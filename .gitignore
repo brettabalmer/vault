@@ -1,0 +1,19 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# NativeAOT / publish
+publish/
+artifacts/
+
+# Node (js reader package)
+node_modules/
+packages/js/dist/
+
+# Never commit a real key or a real project's vault; testvectors are the exception
+*.key
+!testvectors/**
+
+# OS
+.DS_Store

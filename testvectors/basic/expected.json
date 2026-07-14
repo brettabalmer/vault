@@ -1,0 +1,15 @@
+{
+  "vault": {
+    "COSMOS_KEY": "the-cosmos-key-value==",
+    "SHARED_SIGNING_KEY": "shared-hmac-abc123"
+  },
+  "resolved": {
+    "platform": "worker",
+    "profile": "local",
+    "map": {
+      "COSMOS_ENDPOINT": "https://localhost:8081",
+      "COSMOS_KEY": "the-cosmos-key-value==",
+      "SHARED_SIGNING_KEY": "shared-hmac-abc123"
+    }
+  }
+}

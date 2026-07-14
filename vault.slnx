@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Vault.Cli/Vault.Cli.csproj" />
+    <Project Path="src/Vault.Core/Vault.Core.csproj" />
+    <Project Path="src/Vault.Tests/Vault.Tests.csproj" />
+  </Folder>
+</Solution>
