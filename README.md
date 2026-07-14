@@ -27,7 +27,7 @@ sets one value without echoing the others or leaking into shell history, `vault 
 
 ```
 vault                 full-screen TUI (Spectre.Console)   [coming soon]
-vault check           validate required vars; nonzero exit on failure
+vault check | verify  validate every required var is present + values match their format; nonzero exit on failure
 vault list            status table (--category --platform --missing --json)
 vault missing --json  required-but-unset vars, machine-readable
 vault get KEY         one value, masked (--reveal for raw)

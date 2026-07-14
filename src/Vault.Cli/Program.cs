@@ -21,7 +21,7 @@ public static class Program
             return command switch
             {
                 "keygen" => Keygen(rest),
-                "check" => Check(rest),
+                "check" or "verify" => Check(rest),
                 "list" => List(rest),
                 "get" => Get(rest),
                 "set" => Set(rest),
@@ -62,10 +62,10 @@ public static class Program
         var failures = Resolve.Failures(ctx.Manifest, ctx.ReadVault(), ctx.Profile);
         if (failures.Count == 0)
         {
-            AnsiConsole.MarkupLine($"[green]✓ vault check passed[/] [grey](profile {Markup.Escape(ctx.Profile)})[/]");
+            AnsiConsole.MarkupLine($"[green]✓ verify passed[/] [grey]— every required value is present and matches its format (profile {Markup.Escape(ctx.Profile)})[/]");
             return 0;
         }
-        AnsiConsole.MarkupLine($"[red]✗ vault check failed[/] [grey](profile {Markup.Escape(ctx.Profile)})[/] — {failures.Count} problem(s):\n");
+        AnsiConsole.MarkupLine($"[red]✗ verify failed[/] [grey](profile {Markup.Escape(ctx.Profile)})[/] — {failures.Count} required var(s) missing or failing validation:\n");
         foreach (var f in failures)
         {
             var why = f.State == VarState.Invalid ? "value fails validation" : "required but not set";
@@ -325,7 +325,7 @@ public static class Program
         t.AddColumn("c"); t.AddColumn("d");
         void Row(string c, string d) => t.AddRow($"[green]{Markup.Escape(c)}[/]", $"[grey]{Markup.Escape(d)}[/]");
         Row("vault", "launch the full-screen TUI (coming soon)");
-        Row("vault check", "validate required vars; nonzero exit on failure");
+        Row("vault check | verify", "validate every required var is present + values match their format; nonzero exit on failure");
         Row("vault list [--category X] [--platform Y] [--missing] [--json]", "show status");
         Row("vault missing [--json]", "required-but-unset vars (agent-friendly)");
         Row("vault get KEY [--reveal]", "print one value (masked by default)");

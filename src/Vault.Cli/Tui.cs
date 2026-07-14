@@ -147,10 +147,10 @@ public sealed class Tui
         {
             case 'e': _focus = Pane.Vars; return Act.EditModal;
             case 'r': _reveal = !_reveal; return Act.Continue;
-            case 'y': CopySelected(); return Act.Continue;
+            case 'c': CopySelected(); return Act.Continue;
             case '/': return Act.SearchModal;
             case 'p': _profileIdx = (_profileIdx + 1) % _profiles.Length; Reload(); _status = $"profile → [bold]{_profiles[_profileIdx]}[/]"; return Act.Continue;
-            case 'c': RunCheck(); return Act.Continue;
+            case 'v': RunVerify(); return Act.Continue;
         }
         return Act.Continue;
     }
@@ -257,8 +257,8 @@ public sealed class Tui
 
     private IRenderable FooterPanel()
     {
-        var keys = "[grey]↑↓[/] move  [grey]←→/Tab[/] pane  [grey]Enter/e[/] edit  [grey]y[/] copy  [grey]r[/] "
-            + (_reveal ? "[green]hide[/]" : "reveal") + "  [grey]/[/] search  [grey]p[/] profile  [grey]c[/] check  [grey]q[/] quit";
+        var keys = "[grey]↑↓[/] move  [grey]←→/Tab[/] pane  [grey]Enter/e[/] edit  [grey]c[/] copy  [grey]r[/] "
+            + (_reveal ? "[green]hide[/]" : "reveal") + "  [grey]/[/] search  [grey]p[/] profile  [grey]v[/] verify  [grey]q[/] quit";
         var line1 = new Markup($"profile [bold]{Markup.Escape(_ctx.Profile)}[/]   " + (_status.Length > 0 ? _status : "[grey]ready[/]"));
         return new Panel(new Rows(line1, new Markup(keys))).Expand().Border(BoxBorder.Rounded).BorderColor(Color.Grey);
     }
@@ -340,12 +340,14 @@ public sealed class Tui
         _varIdx = 0;
     }
 
-    private void RunCheck()
+    /// <summary>Verify = every required var has a value (vault or default) AND every present value passes its validate regex.</summary>
+    private void RunVerify()
     {
         var failures = Resolve.Failures(_manifest, ReadVaultSafe(), _ctx.Profile);
+        int required = _statuses.Count(s => s.Var.Required);
         _status = failures.Count == 0
-            ? "[green]✓ check passed[/]"
-            : $"[red]✗ {failures.Count} required/invalid[/]";
+            ? $"[green]✓ verify: all {required} required values present & valid[/]"
+            : $"[red]✗ verify: {failures.Count} required missing or invalid (red ● categories)[/]";
     }
 
     private void CopySelected()
