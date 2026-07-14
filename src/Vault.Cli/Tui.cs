@@ -1,3 +1,4 @@
+using System.Text;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Vault.Core;
@@ -199,11 +200,11 @@ public sealed class Tui
         {
             var cat = _categories[i];
             var inCat = _statuses.Where(s => s.Var.Category == cat).ToList();
-            int set = inCat.Count(s => s.State == VarState.Set);
-            bool bad = inCat.Any(s => s.State is VarState.MissingRequired or VarState.Invalid);
+            // Green when every REQUIRED var is satisfied (optional-unset doesn't count against it).
+            bool requiredUnmet = inCat.Any(s => s.State is VarState.MissingRequired or VarState.Invalid);
             var name = Markup.Escape(cat);
-            var count = $"[grey]{set}/{inCat.Count}[/]";
-            var dot = bad ? "[red]●[/]" : (set == inCat.Count ? "[green]●[/]" : "[grey]○[/]");
+            var count = $"[grey]{inCat.Count}[/]";
+            var dot = requiredUnmet ? "[red]●[/]" : "[green]●[/]";
             var label = (i == _catIdx && _focus == Pane.Categories)
                 ? $"[black on white] {dot} {name} {count} [/]"
                 : $" {dot} {name} {count}";
@@ -275,24 +276,63 @@ public sealed class Tui
     {
         var vars = VisibleVars();
         if (_varIdx >= vars.Count) return;
-        var v = vars[_varIdx].Var;
+        var status = vars[_varIdx];
+        var v = status.Var;
         AnsiConsole.Clear();
         AnsiConsole.MarkupLine($"[bold]{Markup.Escape(v.Key)}[/] [grey]({Markup.Escape(v.Category)})[/]");
         AnsiConsole.MarkupLine($"[grey]{Markup.Escape(v.Description)}[/]");
         if (v.Example is not null) AnsiConsole.MarkupLine($"[grey]example: {Markup.Escape(v.Example)}[/]");
-        AnsiConsole.MarkupLine("[grey]Enter a new value (blank to cancel):[/]");
-        var input = AnsiConsole.Prompt(new TextPrompt<string>(">").AllowEmpty());
-        if (!string.IsNullOrEmpty(input))
+        AnsiConsole.MarkupLine($"[grey]current:[/] {(status.Value is null ? "[grey](unset)[/]" : Markup.Escape(status.Value))}");
+        AnsiConsole.Markup("[grey]new value ([/]Enter[grey]=save, empty+[/]Enter[grey]=clear, [/]Esc[grey]=cancel):[/] ");
+
+        var input = ReadLineOrEscape();
+        if (input is null) { _status = "[grey]edit cancelled[/]"; return; }
+        if (input.Length == 0)
         {
-            if (!Manifest.PassesValidation(v, input)) { _status = $"[red]value rejected: fails {Markup.Escape(v.Validate ?? "")}[/]"; }
-            else { _ctx.ProfileFile.Set(_ctx.Key, v.Key, input); _status = $"[green]set {Markup.Escape(v.Key)}[/]"; Reload(); RestoreSelection(v.Key); }
+            _ctx.ProfileFile.Unset(_ctx.Key, v.Key);
+            _status = $"[green]cleared {Markup.Escape(v.Key)}[/]";
+            Reload(); RestoreSelection(v.Key);
+        }
+        else if (!Manifest.PassesValidation(v, input))
+        {
+            _status = $"[red]rejected: fails {Markup.Escape(v.Validate ?? "")}[/]";
+        }
+        else
+        {
+            _ctx.ProfileFile.Set(_ctx.Key, v.Key, input);
+            _status = $"[green]set {Markup.Escape(v.Key)}[/]";
+            Reload(); RestoreSelection(v.Key);
+        }
+    }
+
+    /// <summary>A minimal line editor that supports Esc-to-cancel (returns null) and empty-Enter (returns "").</summary>
+    private static string? ReadLineOrEscape()
+    {
+        var sb = new StringBuilder();
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+            switch (key.Key)
+            {
+                case ConsoleKey.Enter: Console.WriteLine(); return sb.ToString();
+                case ConsoleKey.Escape: Console.WriteLine(); return null;
+                case ConsoleKey.Backspace:
+                    if (sb.Length > 0) { sb.Length--; Console.Write("\b \b"); }
+                    break;
+                default:
+                    if (!char.IsControl(key.KeyChar)) { sb.Append(key.KeyChar); Console.Write(key.KeyChar); }
+                    break;
+            }
         }
     }
 
     private void SearchPrompt()
     {
         AnsiConsole.Clear();
-        _search = AnsiConsole.Prompt(new TextPrompt<string>("[grey]search keys:[/]").AllowEmpty());
+        AnsiConsole.Markup("[grey]search keys ([/]Esc[grey]=cancel, empty=clear):[/] ");
+        var input = ReadLineOrEscape();
+        if (input is null) return; // cancelled — leave the current filter as-is
+        _search = input;
         _focus = Pane.Vars;
         _varIdx = 0;
     }
