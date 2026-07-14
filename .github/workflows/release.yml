@@ -1,0 +1,55 @@
+name: release
+
+# Tag a release: `git tag v0.1.0 && git push --tags`. Builds NativeAOT binaries per-OS, attaches them to a
+# GitHub Release, and (optionally) publishes the npm reader. Homebrew tap update + NuGet are opt-in via secrets.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14      # Apple Silicon
+            rid: osx-arm64
+          - os: macos-13      # Intel mac
+            rid: osx-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet publish src/Vault.Cli/Vault.Cli.csproj -r ${{ matrix.rid }} -c Release -o dist
+      - name: Package
+        run: |
+          cd dist
+          tar -czf "../vault-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz" vault
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: vault-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz
+          fail_on_unmatched_files: true
+
+  npm:
+    runs-on: ubuntu-latest
+    needs: binaries
+    if: ${{ vars.PUBLISH_NPM == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - working-directory: packages/js
+        run: node --test
+      - working-directory: packages/js
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

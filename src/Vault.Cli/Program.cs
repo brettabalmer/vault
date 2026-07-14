@@ -323,7 +323,7 @@ public static class Program
         AnsiConsole.MarkupLine("[bold]vault[/] — encrypted secrets for local dev\n");
         var t = new Table().Border(TableBorder.None).HideHeaders();
         t.AddColumn("c"); t.AddColumn("d");
-        void Row(string c, string d) => t.AddRow($"[green]{c}[/]", $"[grey]{d}[/]");
+        void Row(string c, string d) => t.AddRow($"[green]{Markup.Escape(c)}[/]", $"[grey]{Markup.Escape(d)}[/]");
         Row("vault", "launch the full-screen TUI (coming soon)");
         Row("vault check", "validate required vars; nonzero exit on failure");
         Row("vault list [--category X] [--platform Y] [--missing] [--json]", "show status");

@@ -1,0 +1,16 @@
+{
+  "name": "@brettabalmer/vault-reader",
+  "version": "0.1.0",
+  "description": "Read a `vault` encrypted secrets file (AES-256-GCM) and seed process.env. See the vault tool.",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "index.d.ts", "README.md"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": ["secrets", "vault", "aes-gcm", "dotenv", "env"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/brettabalmer/vault" }
+}

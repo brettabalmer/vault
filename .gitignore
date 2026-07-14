@@ -17,3 +17,6 @@ packages/js/dist/
 
 # OS
 .DS_Store
+
+# release output
+dist/

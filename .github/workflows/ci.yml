@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test src/Vault.Tests/Vault.Tests.csproj -c Release
+      # Prove the CLI still NativeAOT-publishes cleanly (no trim/AOT regressions).
+      - run: dotnet publish src/Vault.Cli/Vault.Cli.csproj -r linux-x64 -c Release -o /tmp/aot
+      - run: /tmp/aot/vault --help
+
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # The JS reader decrypts the same testvectors as the C# reference (cross-language contract).
+      - working-directory: packages/js
+        run: node --test
