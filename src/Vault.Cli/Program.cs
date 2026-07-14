@@ -196,8 +196,8 @@ public static class Program
     {
         var args = new Args(a, "profile", "platform", "format");
         var ctx = CliContext.Discover(args.Value("profile", "local"));
-        var platform = args.Value("platform") ?? throw new CliError("Usage: vault export --platform <name> [--format dotenv|json|shell]");
-        var map = Resolve.ForPlatform(ctx.Manifest, ctx.ReadVault(), platform, ctx.Profile);
+        var platform = args.Value("platform") ?? throw new CliError("Usage: vault export --platform <name> [--format dotenv|json|shell] [--no-defaults]");
+        var map = Resolve.ForPlatform(ctx.Manifest, ctx.ReadVault(), platform, ctx.Profile, includeDefaults: !args.Has("no-defaults"));
         var format = args.Value("format", "dotenv");
         switch (format)
         {
@@ -332,7 +332,7 @@ public static class Program
         Row("vault set KEY VALUE | KEY --stdin", "set one value");
         Row("vault unset KEY", "remove one value");
         Row("vault describe KEY", "show a var's metadata");
-        Row("vault export --platform P [--format dotenv|json|shell]", "materialize a platform slice");
+        Row("vault export --platform P [--format dotenv|json|shell] [--no-defaults]", "materialize a platform slice (--no-defaults = vault values only, for cloud pushes)");
         Row("vault run [--profile p] -- CMD", "run CMD with the vault injected into its env");
         Row("vault import --from DIR", "one-time migration from scattered env files");
         Row("vault keygen [--force]", "create ~/.config/vault/key");

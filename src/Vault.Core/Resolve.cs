@@ -20,16 +20,22 @@ public sealed record VarStatus(ManifestVar Var, VarState State, string? Value, b
 /// </summary>
 public static class Resolve
 {
-    /// <summary>The env map a reader for <paramref name="platform"/>/<paramref name="profile"/> should surface.</summary>
+    /// <summary>
+    /// The env map a reader for <paramref name="platform"/>/<paramref name="profile"/> should surface. With
+    /// <paramref name="includeDefaults"/> false, only explicit vault values are returned (no manifest defaults)
+    /// — used when pushing to a cloud environment, so local-dev defaults (localhost URLs, DEV_SESSION_*) never
+    /// leak into App Service settings.
+    /// </summary>
     public static Dictionary<string, string> ForPlatform(
-        Manifest manifest, IReadOnlyDictionary<string, string> vault, string platform, string profile)
+        Manifest manifest, IReadOnlyDictionary<string, string> vault, string platform, string profile,
+        bool includeDefaults = true)
     {
         var outMap = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var v in manifest.Vars)
         {
             if (!v.AppliesTo(platform, profile)) continue;
             if (vault.TryGetValue(v.Key, out var val)) outMap[v.Key] = val;
-            else if (v.Default is not null) outMap[v.Key] = v.Default;
+            else if (includeDefaults && v.Default is not null) outMap[v.Key] = v.Default;
         }
         return outMap;
     }
