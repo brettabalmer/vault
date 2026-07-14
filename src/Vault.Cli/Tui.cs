@@ -149,8 +149,8 @@ public sealed class Tui
             case 'r': _reveal = !_reveal; return Act.Continue;
             case 'c': CopySelected(); return Act.Continue;
             case '/': return Act.SearchModal;
-            case 'p': _profileIdx = (_profileIdx + 1) % _profiles.Length; Reload(); _status = $"profile → [bold]{_profiles[_profileIdx]}[/]"; return Act.Continue;
-            case 'v': RunVerify(); return Act.Continue;
+            // Switching profiles re-runs verify automatically (Reload recomputes the statuses the footer reads).
+            case 'p': _profileIdx = (_profileIdx + 1) % _profiles.Length; Reload(); _status = $"profile → [bold]{Markup.Escape(_profiles[_profileIdx])}[/]"; return Act.Continue;
         }
         return Act.Continue;
     }
@@ -257,9 +257,17 @@ public sealed class Tui
 
     private IRenderable FooterPanel()
     {
+        // Verify runs continuously: this summary is recomputed from _statuses every render, so it's always
+        // current after a load, profile switch, or value save/clear — no manual step.
+        int required = _statuses.Count(s => s.Var.Required);
+        int attention = _statuses.Count(s => s.State is VarState.MissingRequired or VarState.Invalid);
+        var verify = attention == 0
+            ? $"[green]✓ verify: all {required} required present & valid[/]"
+            : $"[red]✗ verify: {attention} need attention (red ●)[/]";
+        var line1 = new Markup($"[grey]profile[/] [bold]{Markup.Escape(_ctx.Profile)}[/]   {verify}"
+            + (_status.Length > 0 ? $"   [grey]·[/] {_status}" : ""));
         var keys = "[grey]↑↓[/] move  [grey]←→/Tab[/] pane  [grey]Enter/e[/] edit  [grey]c[/] copy  [grey]r[/] "
-            + (_reveal ? "[green]hide[/]" : "reveal") + "  [grey]/[/] search  [grey]p[/] profile  [grey]v[/] verify  [grey]q[/] quit";
-        var line1 = new Markup($"profile [bold]{Markup.Escape(_ctx.Profile)}[/]   " + (_status.Length > 0 ? _status : "[grey]ready[/]"));
+            + (_reveal ? "[green]hide[/]" : "reveal") + "  [grey]/[/] search  [grey]p[/] profile  [grey]q[/] quit";
         return new Panel(new Rows(line1, new Markup(keys))).Expand().Border(BoxBorder.Rounded).BorderColor(Color.Grey);
     }
 
@@ -278,32 +286,41 @@ public sealed class Tui
     {
         var vars = VisibleVars();
         if (_varIdx >= vars.Count) return;
-        var status = vars[_varIdx];
-        var v = status.Var;
-        AnsiConsole.Clear();
-        AnsiConsole.MarkupLine($"[bold]{Markup.Escape(v.Key)}[/] [grey]({Markup.Escape(v.Category)})[/]");
-        AnsiConsole.MarkupLine($"[grey]{Markup.Escape(v.Description)}[/]");
-        if (v.Example is not null) AnsiConsole.MarkupLine($"[grey]example: {Markup.Escape(v.Example)}[/]");
-        AnsiConsole.Markup("[grey]value ([/]Enter[grey]=save, backspace to empty=clear, [/]Esc[grey]=cancel):[/] ");
+        var v = vars[_varIdx].Var;
+        var current = vars[_varIdx].Value ?? "";
+        string? error = null;
 
-        // Prefill with the current value: edit it, or backspace it all away and Enter to clear.
-        var input = ReadLineOrEscape(status.Value ?? "");
-        if (input is null) { _status = "[grey]edit cancelled[/]"; return; }
-        if (input.Length == 0)
+        // Verify the single value BEFORE saving: on a format failure we re-prompt (prefilled with what was
+        // typed) so it can be corrected in place. On save/clear we Reload — which re-verifies the whole
+        // profile, refreshing the footer summary and the category dots.
+        while (true)
         {
-            _ctx.ProfileFile.Unset(_ctx.Key, v.Key);
-            _status = $"[green]cleared {Markup.Escape(v.Key)}[/]";
-            Reload(); RestoreSelection(v.Key);
-        }
-        else if (!Manifest.PassesValidation(v, input))
-        {
-            _status = $"[red]rejected: fails {Markup.Escape(v.Validate ?? "")}[/]";
-        }
-        else
-        {
+            AnsiConsole.Clear();
+            AnsiConsole.MarkupLine($"[bold]{Markup.Escape(v.Key)}[/] [grey]({Markup.Escape(v.Category)})[/]");
+            AnsiConsole.MarkupLine($"[grey]{Markup.Escape(v.Description)}[/]");
+            if (v.Example is not null) AnsiConsole.MarkupLine($"[grey]example: {Markup.Escape(v.Example)}[/]");
+            if (v.Validate is not null) AnsiConsole.MarkupLine($"[grey]must match: {Markup.Escape(v.Validate)}[/]");
+            if (error is not null) AnsiConsole.MarkupLine($"[red]{Markup.Escape(error)}[/]");
+            AnsiConsole.Markup("[grey]value ([/]Enter[grey]=save, backspace to empty=clear, [/]Esc[grey]=cancel):[/] ");
+
+            var input = ReadLineOrEscape(current);
+            if (input is null) { _status = "[grey]edit cancelled[/]"; return; }
+
+            if (input.Length == 0)
+            {
+                _ctx.ProfileFile.Unset(_ctx.Key, v.Key);
+                _status = $"[green]cleared {Markup.Escape(v.Key)}[/]";
+                Reload(); RestoreSelection(v.Key); return;
+            }
+            if (!Manifest.PassesValidation(v, input))
+            {
+                error = "that value doesn't match the required format — correct it:";
+                current = input; // keep the typed value so it can be fixed
+                continue;
+            }
             _ctx.ProfileFile.Set(_ctx.Key, v.Key, input);
-            _status = $"[green]set {Markup.Escape(v.Key)}[/]";
-            Reload(); RestoreSelection(v.Key);
+            _status = $"[green]saved {Markup.Escape(v.Key)}[/]";
+            Reload(); RestoreSelection(v.Key); return;
         }
     }
 
@@ -338,16 +355,6 @@ public sealed class Tui
         _search = input;
         _focus = Pane.Vars;
         _varIdx = 0;
-    }
-
-    /// <summary>Verify = every required var has a value (vault or default) AND every present value passes its validate regex.</summary>
-    private void RunVerify()
-    {
-        var failures = Resolve.Failures(_manifest, ReadVaultSafe(), _ctx.Profile);
-        int required = _statuses.Count(s => s.Var.Required);
-        _status = failures.Count == 0
-            ? $"[green]✓ verify: all {required} required values present & valid[/]"
-            : $"[red]✗ verify: {failures.Count} required missing or invalid (red ● categories)[/]";
     }
 
     private void CopySelected()
