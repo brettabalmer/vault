@@ -17,7 +17,9 @@ jobs:
         include:
           - os: macos-14      # Apple Silicon
             rid: osx-arm64
-          - os: macos-13      # Intel mac
+          # Intel-Mac binary is CROSS-BUILT on the arm64 runner — self-contained single-file needs no Intel
+          # hardware. Avoids the macos-13 runner, which GitHub is retiring (jobs sat queued forever).
+          - os: macos-14
             rid: osx-x64
           - os: ubuntu-latest
             rid: linux-x64
