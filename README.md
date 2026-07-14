@@ -31,7 +31,7 @@ vault check | verify  validate every required var is present + values match thei
 vault list            status table (--category --platform --missing --json)
 vault missing --json  required-but-unset vars, machine-readable
 vault get KEY         one value, masked (--reveal for raw)
-vault set KEY VALUE   set one value (or KEY --stdin)
+vault set KEY VALUE   set one value (or KEY --stdin); --personal → gitignored per-dev personal.enc
 vault unset KEY       remove a value
 vault describe KEY    a var's metadata
 vault export --platform P [--format dotenv|json|shell]

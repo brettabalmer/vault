@@ -18,6 +18,9 @@ public sealed class ManifestVar
     [JsonPropertyName("default")] public string? Default { get; set; }
     [JsonPropertyName("validate")] public string? Validate { get; set; }
     [JsonPropertyName("source")] public string? Source { get; set; }
+    /// <summary>Per-developer value (own LLM key, local model, identity…). `vault set` targets the gitignored
+    /// personal.enc by default, and it's never committed to the shared vault.</summary>
+    [JsonPropertyName("personal")] public bool Personal { get; set; }
 
     public bool AppliesTo(string platform, string profile) =>
         (Platforms.Count == 0 || Platforms.Contains(platform)) &&

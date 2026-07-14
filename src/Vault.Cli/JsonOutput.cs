@@ -10,6 +10,7 @@ public sealed class VarReport
     [JsonPropertyName("description")] public string Description { get; set; } = "";
     [JsonPropertyName("required")] public bool Required { get; set; }
     [JsonPropertyName("secret")] public bool Secret { get; set; }
+    [JsonPropertyName("personal")] public bool Personal { get; set; }
     [JsonPropertyName("state")] public string State { get; set; } = "";
     [JsonPropertyName("platforms")] public List<string> Platforms { get; set; } = new();
     [JsonPropertyName("example")] public string? Example { get; set; }

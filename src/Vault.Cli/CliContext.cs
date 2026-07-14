@@ -45,10 +45,22 @@ public sealed class CliContext
     private byte[]? _key;
     public byte[] Key => _key ??= KeyStore.Load();
 
-    public VaultFile ProfileFile => new(VaultDir, Profile);
+    /// <summary>Shared, committed values for the active profile (<c>&lt;profile&gt;.enc</c>).</summary>
+    public VaultFile SharedFile => new(VaultDir, Profile);
 
-    /// <summary>Decrypt the active profile's values.</summary>
-    public SortedDictionary<string, string> ReadVault() => ProfileFile.Read(Key);
+    /// <summary>Per-developer overrides (<c>personal.enc</c>, gitignored — never committed, layered on top).</summary>
+    public VaultFile PersonalFile => new(VaultDir, "personal");
+
+    /// <summary>Effective values: shared overlaid with personal (personal wins).</summary>
+    public SortedDictionary<string, string> ReadVault()
+    {
+        var map = SharedFile.Read(Key);
+        foreach (var (k, v) in PersonalFile.Read(Key)) map[k] = v;
+        return map;
+    }
+
+    /// <summary>Keys that came from the personal file (for provenance in <c>list</c>).</summary>
+    public HashSet<string> PersonalKeys() => new(PersonalFile.Read(Key).Keys, StringComparer.Ordinal);
 }
 
 /// <summary>A user-facing error: printed as a clean message, exit code 1, no stack trace.</summary>

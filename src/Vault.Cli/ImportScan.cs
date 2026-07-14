@@ -20,7 +20,7 @@ public static class ImportScan
             foreach (var (k, v) in ReadPairs(file))
                 collected[k] = v;
 
-        var vault = ctx.ProfileFile.Read(ctx.Key);
+        var vault = ctx.SharedFile.Read(ctx.Key);
         var unmapped = new List<string>();
         int imported = 0;
         foreach (var (k, v) in collected)
@@ -29,7 +29,7 @@ public static class ImportScan
             vault[k] = v;
             imported++;
         }
-        ctx.ProfileFile.Write(ctx.Key, vault);
+        ctx.SharedFile.Write(ctx.Key, vault);
         return (imported, unmapped);
     }
 

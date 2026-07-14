@@ -92,13 +92,14 @@ public static class Program
 
         if (args.Has("json")) { EmitJson(filtered); return 0; }
 
+        var personalKeys = ctx.PersonalKeys();
         foreach (var group in filtered.GroupBy(s => s.Var.Category))
         {
             AnsiConsole.MarkupLine($"\n[bold underline]{Markup.Escape(group.Key)}[/]");
             var table = new Table().Border(TableBorder.None).HideHeaders();
             table.AddColumn("s"); table.AddColumn("k"); table.AddColumn("v");
             foreach (var s in group)
-                table.AddRow(StatusGlyph(s.State), $"[bold]{Markup.Escape(s.Var.Key)}[/]", RenderValue(s));
+                table.AddRow(StatusGlyph(s.State), $"[bold]{Markup.Escape(s.Var.Key)}[/]", RenderValue(s, personalKeys.Contains(s.Var.Key)));
             AnsiConsole.Write(table);
         }
         Summarize(filtered);
@@ -139,10 +140,14 @@ public static class Program
         else if (!Manifest.PassesValidation(mv, value))
             throw new CliError($"Value for {key} fails its validation regex ({mv.Validate}).");
 
-        var prior = ctx.ProfileFile.Set(ctx.Key, key, value);
-        AnsiConsole.MarkupLine(prior is null
-            ? $"[green]✓[/] set [bold]{Markup.Escape(key)}[/] [grey](profile {Markup.Escape(ctx.Profile)})[/]"
-            : $"[green]✓[/] updated [bold]{Markup.Escape(key)}[/] [grey](profile {Markup.Escape(ctx.Profile)})[/]");
+        // Personal (per-developer) vars go in the gitignored personal.enc; --personal/--shared force it.
+        bool personal = args.Has("personal") || (mv?.Personal ?? false);
+        if (args.Has("shared")) personal = false;
+        var target = personal ? ctx.PersonalFile : ctx.SharedFile;
+        var where = personal ? "personal · not committed" : $"shared · profile {ctx.Profile}";
+
+        var prior = target.Set(ctx.Key, key, value);
+        AnsiConsole.MarkupLine($"[green]✓[/] {(prior is null ? "set" : "updated")} [bold]{Markup.Escape(key)}[/] [grey]({Markup.Escape(where)})[/]");
         return 0;
     }
 
@@ -151,9 +156,12 @@ public static class Program
         var args = new Args(a, "profile");
         var key = args.Positional0 ?? throw new CliError("Usage: vault unset KEY");
         var ctx = CliContext.Discover(args.Value("profile", "local"));
-        var removed = ctx.ProfileFile.Unset(ctx.Key, key);
-        AnsiConsole.MarkupLine(removed
-            ? $"[green]✓[/] removed [bold]{Markup.Escape(key)}[/]"
+        // Prefer removing a personal override (revert to shared/default); else remove the shared value.
+        string? from = ctx.PersonalFile.Unset(ctx.Key, key) ? "personal"
+            : ctx.SharedFile.Unset(ctx.Key, key) ? $"shared · profile {ctx.Profile}"
+            : null;
+        AnsiConsole.MarkupLine(from is not null
+            ? $"[green]✓[/] removed [bold]{Markup.Escape(key)}[/] [grey]({Markup.Escape(from)})[/]"
             : $"[grey]{Markup.Escape(key)} was not set — nothing to do.[/]");
         return 0;
     }
@@ -170,6 +178,7 @@ public static class Program
         grid.AddRow("[grey]description[/]", Markup.Escape(v.Description));
         grid.AddRow("[grey]required[/]", v.Required ? "[yellow]yes[/]" : "no");
         grid.AddRow("[grey]secret[/]", v.Secret ? "yes" : "no");
+        grid.AddRow("[grey]personal[/]", v.Personal ? "[blue]yes — per-developer (personal.enc, not committed)[/]" : "no (shared)");
         grid.AddRow("[grey]platforms[/]", Markup.Escape(string.Join(", ", v.Platforms)));
         grid.AddRow("[grey]profiles[/]", Markup.Escape(string.Join(", ", v.Profiles)));
         if (v.Source is not null) grid.AddRow("[grey]source[/]", Markup.Escape(v.Source));
@@ -263,13 +272,15 @@ public static class Program
         _ => " ",
     };
 
-    private static string RenderValue(VarStatus s)
+    private static string RenderValue(VarStatus s, bool isPersonal = false)
     {
         if (s.State is VarState.MissingRequired) return "[red]required, not set[/]";
         if (s.State is VarState.MissingOptional) return "[grey]—[/]";
         if (s.State is VarState.Invalid) return "[yellow]invalid value[/]";
         var shown = s.Var.Secret ? Mask(s.Value!) : Markup.Escape(s.Value!);
-        return s.FromDefault ? $"{shown} [grey](default)[/]" : shown;
+        if (s.FromDefault) return $"{shown} [grey](default)[/]";
+        if (isPersonal) return $"{shown} [blue](personal)[/]";
+        return shown;
     }
 
     private static void Summarize(IReadOnlyList<VarStatus> items)
@@ -302,7 +313,7 @@ public static class Program
         var reports = items.Select(s => new VarReport
         {
             Key = s.Var.Key, Category = s.Var.Category, Description = s.Var.Description,
-            Required = s.Var.Required, Secret = s.Var.Secret, State = s.State.ToString(),
+            Required = s.Var.Required, Secret = s.Var.Secret, Personal = s.Var.Personal, State = s.State.ToString(),
             Platforms = s.Var.Platforms, Example = s.Var.Example, Source = s.Var.Source,
         }).ToList();
         Console.WriteLine(JsonSerializer.Serialize(reports, JsonOutputContext.Default.ListVarReport));
@@ -329,7 +340,7 @@ public static class Program
         Row("vault list [--category X] [--platform Y] [--missing] [--json]", "show status");
         Row("vault missing [--json]", "required-but-unset vars (agent-friendly)");
         Row("vault get KEY [--reveal]", "print one value (masked by default)");
-        Row("vault set KEY VALUE | KEY --stdin", "set one value");
+        Row("vault set KEY VALUE | KEY --stdin [--personal]", "set one value (--personal → your gitignored personal.enc, per-developer)");
         Row("vault unset KEY", "remove one value");
         Row("vault describe KEY", "show a var's metadata");
         Row("vault export --platform P [--format dotenv|json|shell] [--no-defaults]", "materialize a platform slice (--no-defaults = vault values only, for cloud pushes)");

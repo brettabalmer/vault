@@ -83,6 +83,18 @@ Each entry:
 `vault check` fails when a `required` var (for the active profile) is absent from both the vault and `default`,
 or when a present value fails `validate`.
 
+## 4a. Personal overrides — `personal.enc`
+
+Alongside the committed `<profile>.enc` (shared, same for everyone), a reader also loads an optional
+**`personal.enc`** in the same directory: a **gitignored, per-developer** file (same envelope, same key) whose
+values **override** the shared ones. This is where per-developer values live — your own LLM key, local model
+name, machine paths, dev identity — without clobbering the shared vault.
+
+- Resolution order (lowest→highest): manifest `default` → `<profile>.enc` (shared) → `personal.enc` (personal).
+- A manifest var with `"personal": true` is written to `personal.enc` by `vault set` (default); `--personal` /
+  `--shared` force the target for any var.
+- `personal.enc` is **never committed** — add `vault/personal.enc` to `.gitignore`.
+
 ## 5. Resolution
 
 A reader for platform *P* and profile *R* produces the map:
