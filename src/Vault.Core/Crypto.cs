@@ -70,6 +70,75 @@ public static class Crypto
         return Encoding.UTF8.GetString(plain);
     }
 
+    public const string EncPrefix = "enc:";
+
+    /// <summary>True if a stored value is an encrypted token (vs plaintext).</summary>
+    public static bool IsEncrypted(string value) => value.StartsWith(EncPrefix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Encrypt ONE value → <c>enc:base64(nonce ‖ ct ‖ tag)</c> (vault format v2, per-value). The nonce is
+    /// derived deterministically from HMAC(key, name ‖ 0x00 ‖ value) so an unchanged secret produces the same
+    /// token every write — clean git diffs, no churn. A nonce only repeats for an identical (name,value) under
+    /// the same key (→ identical token, which is safe). AAD = the var name, binding a token to its key.
+    /// </summary>
+    public static string EncryptValue(string name, string plaintext, byte[] key)
+    {
+        ValidateKey(key);
+        var plain = Encoding.UTF8.GetBytes(plaintext);
+        var nonce = DeriveNonce(key, name, plain);
+        var cipher = new byte[plain.Length];
+        var tag = new byte[TagSize];
+        using var gcm = new AesGcm(key, TagSize);
+        gcm.Encrypt(nonce, plain, cipher, tag, Encoding.UTF8.GetBytes(name));
+        var token = new byte[NonceSize + cipher.Length + TagSize];
+        Buffer.BlockCopy(nonce, 0, token, 0, NonceSize);
+        Buffer.BlockCopy(cipher, 0, token, NonceSize, cipher.Length);
+        Buffer.BlockCopy(tag, 0, token, NonceSize + cipher.Length, TagSize);
+        return EncPrefix + Convert.ToBase64String(token);
+    }
+
+    /// <summary>Decrypt an <c>enc:…</c> token back to plaintext (AAD = <paramref name="name"/>).</summary>
+    public static string DecryptValue(string name, string token, byte[] key)
+    {
+        ValidateKey(key);
+        byte[] raw;
+        try { raw = Convert.FromBase64String(token[EncPrefix.Length..]); }
+        catch (FormatException e) { throw new VaultCryptoException($"'{name}' has a malformed encrypted value.", e); }
+        if (raw.Length < NonceSize + TagSize) throw new VaultCryptoException($"'{name}' encrypted value is too short.");
+        int ctLen = raw.Length - NonceSize - TagSize;
+        var nonce = new byte[NonceSize];
+        var cipher = new byte[ctLen];
+        var tag = new byte[TagSize];
+        Buffer.BlockCopy(raw, 0, nonce, 0, NonceSize);
+        Buffer.BlockCopy(raw, NonceSize, cipher, 0, ctLen);
+        Buffer.BlockCopy(raw, NonceSize + ctLen, tag, 0, TagSize);
+        var plain = new byte[ctLen];
+        try
+        {
+            using var gcm = new AesGcm(key, TagSize);
+            gcm.Decrypt(nonce, cipher, tag, plain, Encoding.UTF8.GetBytes(name));
+        }
+        catch (AuthenticationTagMismatchException e)
+        {
+            throw new VaultCryptoException($"Failed to decrypt '{name}': wrong key or the value was tampered with.", e);
+        }
+        return Encoding.UTF8.GetString(plain);
+    }
+
+    private static byte[] DeriveNonce(byte[] key, string name, byte[] plain)
+    {
+        using var h = new HMACSHA256(key);
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        var buf = new byte[nameBytes.Length + 1 + plain.Length];
+        Buffer.BlockCopy(nameBytes, 0, buf, 0, nameBytes.Length);
+        buf[nameBytes.Length] = 0;
+        Buffer.BlockCopy(plain, 0, buf, nameBytes.Length + 1, plain.Length);
+        var mac = h.ComputeHash(buf);
+        var nonce = new byte[NonceSize];
+        Buffer.BlockCopy(mac, 0, nonce, 0, NonceSize);
+        return nonce;
+    }
+
     private static void ValidateKey(byte[] key)
     {
         if (key.Length != KeySize)

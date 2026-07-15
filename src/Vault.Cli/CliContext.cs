@@ -61,6 +61,9 @@ public sealed class CliContext
 
     /// <summary>Keys that came from the personal file (for provenance in <c>list</c>).</summary>
     public HashSet<string> PersonalKeys() => new(PersonalFile.Read(Key).Keys, StringComparer.Ordinal);
+
+    /// <summary>Which keys are stored encrypted, per the manifest (unknown keys default to non-secret).</summary>
+    public bool IsSecret(string name) => Manifest.Find(name)?.Secret ?? false;
 }
 
 /// <summary>A user-facing error: printed as a clean message, exit code 1, no stack trace.</summary>

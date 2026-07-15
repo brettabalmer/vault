@@ -43,6 +43,26 @@ public class CryptoTests
     }
 
     [Fact]
+    public void PerValueRoundTripsAndIsDeterministic()
+    {
+        var key = Key();
+        var t1 = Crypto.EncryptValue("COSMOS_KEY", "s3cr3t", key);
+        var t2 = Crypto.EncryptValue("COSMOS_KEY", "s3cr3t", key);
+        Assert.True(Crypto.IsEncrypted(t1));
+        Assert.Equal(t1, t2); // deterministic → stable git diffs
+        Assert.Equal("s3cr3t", Crypto.DecryptValue("COSMOS_KEY", t1, key));
+    }
+
+    [Fact]
+    public void PerValueAadBindsTheName()
+    {
+        var key = Key();
+        var t = Crypto.EncryptValue("A", "v", key);
+        // A token encrypted under name "A" must not decrypt under name "B" (AAD mismatch).
+        Assert.Throws<VaultCryptoException>(() => Crypto.DecryptValue("B", t, key));
+    }
+
+    [Fact]
     public void ToleratesWhitespaceInBase64()
     {
         var key = Key();
@@ -124,10 +144,12 @@ public class ConformanceTests
     public void TamperingFails(string vectorDir)
     {
         var key = Convert.FromBase64String(File.ReadAllText(Path.Combine(vectorDir, "key.txt")).Trim());
-        var encPath = Path.Combine(vectorDir, "vault", "local.enc");
-        var bytes = Convert.FromBase64String(new string(File.ReadAllText(encPath).Where(c => !char.IsWhiteSpace(c)).ToArray()));
-        bytes[bytes.Length / 2] ^= 0x01;
-        Assert.Throws<VaultCryptoException>(() => Crypto.Decrypt(Convert.ToBase64String(bytes), key));
+        var line = File.ReadAllLines(Path.Combine(vectorDir, "vault", "local.enc")).First(l => l.Contains("=enc:"));
+        var eq = line.IndexOf('=');
+        var name = line[..eq];
+        var raw = Convert.FromBase64String(line[(eq + 1 + Crypto.EncPrefix.Length)..]);
+        raw[raw.Length / 2] ^= 0x01; // flip a ciphertext byte
+        Assert.Throws<VaultCryptoException>(() => Crypto.DecryptValue(name, Crypto.EncPrefix + Convert.ToBase64String(raw), key));
     }
 
     private static string RepoRoot()

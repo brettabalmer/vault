@@ -146,7 +146,7 @@ public static class Program
         var target = personal ? ctx.PersonalFile : ctx.SharedFile;
         var where = personal ? "personal · not committed" : $"shared · profile {ctx.Profile}";
 
-        var prior = target.Set(ctx.Key, key, value);
+        var prior = target.Set(ctx.Key, key, value, ctx.IsSecret);
         AnsiConsole.MarkupLine($"[green]✓[/] {(prior is null ? "set" : "updated")} [bold]{Markup.Escape(key)}[/] [grey]({Markup.Escape(where)})[/]");
         return 0;
     }
@@ -157,8 +157,8 @@ public static class Program
         var key = args.Positional0 ?? throw new CliError("Usage: vault unset KEY");
         var ctx = CliContext.Discover(args.Value("profile", "local"));
         // Prefer removing a personal override (revert to shared/default); else remove the shared value.
-        string? from = ctx.PersonalFile.Unset(ctx.Key, key) ? "personal"
-            : ctx.SharedFile.Unset(ctx.Key, key) ? $"shared · profile {ctx.Profile}"
+        string? from = ctx.PersonalFile.Unset(ctx.Key, key, ctx.IsSecret) ? "personal"
+            : ctx.SharedFile.Unset(ctx.Key, key, ctx.IsSecret) ? $"shared · profile {ctx.Profile}"
             : null;
         AnsiConsole.MarkupLine(from is not null
             ? $"[green]✓[/] removed [bold]{Markup.Escape(key)}[/] [grey]({Markup.Escape(from)})[/]"

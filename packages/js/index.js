@@ -46,7 +46,36 @@ export function decrypt(base64Envelope, key) {
   return Buffer.concat([d.update(cipher), d.final()]).toString("utf8");
 }
 
-/** Parse a KEY=VALUE block (FORMAT.md §3). */
+/** Decrypt one `enc:…` value token (AAD = the var name). Per-value crypto, FORMAT.md. */
+export function decryptValue(name, token, key) {
+  const raw = Buffer.from(token.slice(4), "base64"); // strip "enc:"
+  const nonce = raw.subarray(0, 12);
+  const tag = raw.subarray(raw.length - 16);
+  const cipher = raw.subarray(12, raw.length - 16);
+  const d = createDecipheriv("aes-256-gcm", key, nonce);
+  d.setAAD(Buffer.from(name, "utf8"));
+  d.setAuthTag(tag);
+  return Buffer.concat([d.update(cipher), d.final()]).toString("utf8");
+}
+
+/** Read a vault file → map. v2 (per-value: plaintext or enc:… tokens) or legacy v1 (whole blob). */
+export function readVaultFile(path, key) {
+  const text = readFileSync(path, "utf8");
+  if (!text.trimStart().startsWith("#vault:2")) return parseEnv(decrypt(text, key)); // legacy v1
+  const out = {};
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const name = line.slice(0, eq);
+    const val = line.slice(eq + 1);
+    out[name] = val.startsWith("enc:") ? decryptValue(name, val, key) : val;
+  }
+  return out;
+}
+
+/** Parse a KEY=VALUE block (FORMAT.md — plaintext, used for legacy v1 payloads). */
 export function parseEnv(text) {
   const out = {};
   for (const raw of String(text).split("\n")) {
@@ -67,7 +96,10 @@ export function resolve({ vaultDir, platform, profile = "local", key }) {
   const encPath = join(vaultDir, `${profile}.enc`);
   const manifestPath = join(vaultDir, "manifest.json");
   if (!existsSync(encPath) || !existsSync(manifestPath)) return {};
-  const values = parseEnv(decrypt(readFileSync(encPath, "utf8"), key));
+  const values = readVaultFile(encPath, key);
+  // Per-developer overrides (gitignored personal.enc, layered on top).
+  const personalPath = join(vaultDir, "personal.enc");
+  if (existsSync(personalPath)) for (const [k, v] of Object.entries(readVaultFile(personalPath, key))) values[k] = v;
   const vars = JSON.parse(readFileSync(manifestPath, "utf8")).vars ?? [];
   const out = {};
   for (const v of vars) {

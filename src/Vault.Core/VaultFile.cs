@@ -3,12 +3,14 @@ using System.Text;
 namespace Vault.Core;
 
 /// <summary>
-/// A profile's encrypted values on disk: <c>&lt;dir&gt;/&lt;profile&gt;.enc</c>. Read-modify-write with the
-/// crypto envelope; the committed file is base64 line-wrapped at 76 cols for readable diffs.
+/// A profile's values on disk (FORMAT.md). <b>v2</b> is a text file — one <c>KEY=VALUE</c> line per var, where
+/// non-secret values are plaintext and secret values are <c>enc:&lt;base64&gt;</c> tokens (per-value, deterministic
+/// — so git can line-merge changes across worktrees and a blank secret stays blank). Reads still accept the
+/// legacy <b>v1</b> whole-file blob, so old vaults migrate to v2 on the next write.
 /// </summary>
 public sealed class VaultFile
 {
-    private const int WrapCols = 76;
+    private const string V2Header = "#vault:2";
 
     public string Dir { get; }
     public string Profile { get; }
@@ -22,51 +24,69 @@ public sealed class VaultFile
 
     public bool Exists() => File.Exists(Path);
 
-    /// <summary>Decrypt to a map. A missing file is an empty map (a not-yet-populated profile).</summary>
+    /// <summary>Decrypt to a map. Missing file → empty. Handles both v2 (per-value) and legacy v1 (whole blob).</summary>
     public SortedDictionary<string, string> Read(byte[] key)
     {
         if (!Exists()) return new SortedDictionary<string, string>(StringComparer.Ordinal);
-        var plaintext = Crypto.Decrypt(File.ReadAllText(Path), key);
-        return EnvText.Parse(plaintext);
+        var text = File.ReadAllText(Path);
+        return text.TrimStart().StartsWith(V2Header, StringComparison.Ordinal)
+            ? ReadV2(text, key)
+            : EnvText.Parse(Crypto.Decrypt(text, key)); // v1: whole-file AES-GCM blob
     }
 
-    /// <summary>Encrypt and persist a full map (sorted, wrapped).</summary>
-    public void Write(byte[] key, IReadOnlyDictionary<string, string> map)
+    private static SortedDictionary<string, string> ReadV2(string text, byte[] key)
+    {
+        var map = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0 || line[0] == '#') continue;
+            int eq = line.IndexOf('=');
+            if (eq <= 0) continue;
+            var name = line[..eq];
+            var val = line[(eq + 1)..];
+            map[name] = Crypto.IsEncrypted(val) ? Crypto.DecryptValue(name, val, key) : val;
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Encrypt+persist a full map in v2. <paramref name="isSecret"/> decides which keys are stored as
+    /// <c>enc:…</c> (a blank secret is stored blank, not encrypted).
+    /// </summary>
+    public void Write(byte[] key, IReadOnlyDictionary<string, string> map, Func<string, bool> isSecret)
     {
         Directory.CreateDirectory(Dir);
-        var b64 = Crypto.Encrypt(EnvText.Serialize(map), key);
-        File.WriteAllText(Path, Wrap(b64) + "\n");
+        var sb = new StringBuilder();
+        sb.Append(V2Header).Append('\n');
+        sb.Append("# Managed by `vault` — do not hand-edit. Non-secret values are plaintext; secrets are enc:<base64>.\n");
+        foreach (var name in map.Keys.OrderBy(k => k, StringComparer.Ordinal))
+        {
+            var value = map[name];
+            var stored = isSecret(name) && value.Length > 0 ? Crypto.EncryptValue(name, value, key) : value;
+            sb.Append(name).Append('=').Append(stored).Append('\n');
+        }
+        File.WriteAllText(Path, sb.ToString());
     }
 
     /// <summary>Set one key; returns the prior value (null if new).</summary>
-    public string? Set(byte[] key, string name, string value)
+    public string? Set(byte[] key, string name, string value, Func<string, bool> isSecret)
     {
         if (!EnvText.IsValidKey(name))
             throw new ArgumentException($"'{name}' is not a valid key (must be ^[A-Za-z_][A-Za-z0-9_]*$).");
         var map = Read(key);
         map.TryGetValue(name, out var prior);
         map[name] = value;
-        Write(key, map);
+        Write(key, map, isSecret);
         return prior;
     }
 
     /// <summary>Remove one key; returns true if it was present.</summary>
-    public bool Unset(byte[] key, string name)
+    public bool Unset(byte[] key, string name, Func<string, bool> isSecret)
     {
         var map = Read(key);
         if (!map.Remove(name)) return false;
-        Write(key, map);
+        Write(key, map, isSecret);
         return true;
-    }
-
-    private static string Wrap(string s)
-    {
-        var sb = new StringBuilder(s.Length + s.Length / WrapCols + 1);
-        for (int i = 0; i < s.Length; i += WrapCols)
-        {
-            if (i > 0) sb.Append('\n');
-            sb.Append(s.AsSpan(i, Math.Min(WrapCols, s.Length - i)));
-        }
-        return sb.ToString();
     }
 }

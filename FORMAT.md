@@ -19,41 +19,37 @@ A single symmetric **32-byte** key, base64-encoded, resolved in this order:
 The key file contains exactly the base64 string (trailing whitespace/newline trimmed). Mode SHOULD be `600`.
 `vault keygen` creates it from a CSPRNG. The key is **never** committed and never leaves the machine.
 
-## 2. The vault file — `<profile>.enc`
+## 2. The vault file — `<profile>.enc` (format v2)
 
-One file per profile (`local.enc`, `azure-dev.enc`, …). Contents are the **base64** encoding of this binary
-envelope:
+One file per profile (`local.enc`, …) plus an optional `personal.enc` (§4a). **v2 is a UTF-8 text file** —
+one `KEY=VALUE` line per var, so git can line-diff and auto-merge changes across worktrees:
 
 ```
-┌─────────┬────────────┬───────────────────────────┬──────────┐
-│ version │   nonce    │        ciphertext         │   tag    │
-│ 1 byte  │  12 bytes  │        N bytes            │ 16 bytes │
-└─────────┴────────────┴───────────────────────────┴──────────┘
+#vault:2
+# Managed by `vault` — do not hand-edit. Non-secret values are plaintext; secrets are enc:<base64>.
+COSMOS_ENDPOINT=https://localhost:8081
+COSMOS_KEY=enc:2zbLw1xUXS7ZHR70XDL9oyTx1Z4cECACop002i0DkuEWTdA2/8CkAcgGSRM5GcOobTo=
+BLANK_SECRET=
 ```
 
-- **version** = `0x01`. A reader MUST refuse a version it does not implement.
-- **nonce** = 12 random bytes (fresh per write; AES-GCM nonces must never repeat under one key).
-- **ciphertext ‖ tag** = AES-256-GCM over the plaintext (§3). The tag is the standard 16-byte GCM auth tag.
-- **AAD** = the single version byte (`0x01`). Binds the version into the authentication.
+- First line is exactly **`#vault:2`** (format marker). Lines starting `#` and blank lines are ignored.
+- Each entry: split on the **first** `=`. The **key** matches `^[A-Za-z_][A-Za-z0-9_]*$`. The **value** is
+  either **plaintext** (non-secret) or an **`enc:<base64>`** token (secret), or empty.
+- Which keys are secret is decided by the **manifest** (`"secret": true`); the reader itself is
+  self-describing (the `enc:` prefix marks encryption) and needs no manifest to decrypt.
+- A **blank secret is stored blank** (`KEY=`), not encrypted.
+- Entries are written **sorted by key** (stable diffs).
 
-Decryption: base64-decode → split off version/nonce/tag → AES-256-GCM verify+decrypt with the key and AAD.
-A failed tag check is a hard error (wrong key or tampered file) — never fall back to plaintext.
+**Per-value token** — `enc:` followed by base64 of `nonce(12) ‖ ciphertext ‖ tag(16)`:
 
-The base64 text is what gets committed to git. It's line-wrapped at 76 cols for readable diffs; readers MUST
-strip all whitespace before decoding.
+- **AES-256-GCM**, tag 16 bytes, **AAD = the key name** (a token can't be moved to another key).
+- **nonce = first 12 bytes of HMAC-SHA256(key, keyName ‖ 0x00 ‖ plaintext)** — *deterministic*. So an
+  unchanged secret re-encrypts to the **same** token (no git churn), and a nonce only ever repeats for an
+  identical `(key, name, value)` → identical token, which is safe. A failed tag check is a hard error.
 
-## 3. The plaintext — `KEY=VALUE` lines
-
-The decrypted bytes are UTF-8 text, one assignment per line:
-
-- Split on the **first** `=`. Everything after it is the value verbatim (values may contain `=`, `;`, spaces —
-  connection strings do).
-- Keys match `^[A-Za-z_][A-Za-z0-9_]*$`.
-- Blank lines and lines beginning with `#` are ignored.
-- No quoting, no escaping, no variable expansion, no multi-line values. A value is a single line of UTF-8.
-- On write, entries are emitted sorted by key (stable diffs), `KEY=VALUE\n`.
-
-This mirrors the repo's existing `scripts/lib/env-file.mjs` reader so migration is lossless.
+**Legacy v1** (files NOT starting `#vault:2`): the whole payload was one base64 `version(0x01) ‖ nonce(12) ‖
+AES-256-GCM(KEY=VALUE block, AAD=version) ‖ tag`. Readers MUST still accept v1; the next write upgrades the
+file to v2.
 
 ## 4. The manifest — `manifest.json`
 

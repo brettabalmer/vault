@@ -309,7 +309,7 @@ public sealed class Tui
 
             if (input.Length == 0)
             {
-                if (!_ctx.PersonalFile.Unset(_ctx.Key, v.Key)) _ctx.SharedFile.Unset(_ctx.Key, v.Key);
+                if (!_ctx.PersonalFile.Unset(_ctx.Key, v.Key, _ctx.IsSecret)) _ctx.SharedFile.Unset(_ctx.Key, v.Key, _ctx.IsSecret);
                 _status = $"[green]cleared {Markup.Escape(v.Key)}[/]";
                 Reload(); RestoreSelection(v.Key); return;
             }
@@ -320,7 +320,7 @@ public sealed class Tui
                 continue;
             }
             // Per-developer vars go in the gitignored personal.enc; shared vars in the committed profile file.
-            (v.Personal ? _ctx.PersonalFile : _ctx.SharedFile).Set(_ctx.Key, v.Key, input);
+            (v.Personal ? _ctx.PersonalFile : _ctx.SharedFile).Set(_ctx.Key, v.Key, input, _ctx.IsSecret);
             _status = $"[green]saved {Markup.Escape(v.Key)} ({(v.Personal ? "personal" : "shared")})[/]";
             Reload(); RestoreSelection(v.Key); return;
         }

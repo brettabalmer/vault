@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { decrypt, parseEnv, resolve } from "./index.js";
+import { readVaultFile, decryptValue, resolve } from "./index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const vectorsDir = join(here, "..", "..", "testvectors");
@@ -17,9 +17,8 @@ for (const name of readdirSync(vectorsDir, { withFileTypes: true }).filter((d) =
   test(`vector: ${name.name} decrypts to expected`, () => {
     const key = Buffer.from(readFileSync(join(dir, "key.txt"), "utf8").trim(), "base64");
     const expected = JSON.parse(readFileSync(join(dir, "expected.json"), "utf8"));
-    const enc = readFileSync(join(dir, "vault", "local.enc"), "utf8");
 
-    const got = parseEnv(decrypt(enc, key));
+    const got = readVaultFile(join(dir, "vault", "local.enc"), key);
     assert.deepEqual(got, expected.vault);
 
     const map = resolve({
@@ -33,8 +32,11 @@ for (const name of readdirSync(vectorsDir, { withFileTypes: true }).filter((d) =
 
   test(`vector: ${name.name} tampering fails`, () => {
     const key = Buffer.from(readFileSync(join(dir, "key.txt"), "utf8").trim(), "base64");
-    const enc = Buffer.from(readFileSync(join(dir, "vault", "local.enc"), "utf8").replace(/\s+/g, ""), "base64");
-    enc[Math.floor(enc.length / 2)] ^= 0x01;
-    assert.throws(() => decrypt(enc.toString("base64"), key));
+    const line = readFileSync(join(dir, "vault", "local.enc"), "utf8").split("\n").find((l) => l.includes("=enc:"));
+    const eq = line.indexOf("=");
+    const name2 = line.slice(0, eq);
+    const raw = Buffer.from(line.slice(eq + 1 + 4), "base64"); // strip "enc:"
+    raw[Math.floor(raw.length / 2)] ^= 0x01;
+    assert.throws(() => decryptValue(name2, "enc:" + raw.toString("base64"), key));
   });
 }
