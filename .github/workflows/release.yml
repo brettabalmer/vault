@@ -2,7 +2,8 @@ name: release
 
 # Tag a release: `git tag v0.1.0 && git push --tags`. Builds NativeAOT binaries per-OS, attaches them to a
 # GitHub Release, and (optionally) publishes the reader packages. npm publish is gated on the `PUBLISH_NPM`
-# repo variable + `NPM_TOKEN` secret; NuGet publish on `PUBLISH_NUGET` + `NUGET_API_KEY`.
+# repo variable + `NPM_TOKEN` secret; NuGet publish on `PUBLISH_NUGET` + the `NUGET_USER` variable, using
+# Trusted Publishing (OIDC) — no NuGet API-key secret.
 
 on:
   push:
@@ -67,6 +68,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: binaries
     if: ${{ vars.PUBLISH_NUGET == 'true' }}
+    # Trusted Publishing (OIDC) — no long-lived NUGET_API_KEY secret. Configure a trusted-publisher policy on
+    # nuget.org (account → Trusted Publishing) for repo brettabalmer/vault, workflow release.yml, package glob
+    # `Brettabalmer.Vault.*`; set the `NUGET_USER` repo variable to your nuget.org username.
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -76,6 +83,8 @@ jobs:
       # The reader library ships as `Brettabalmer.Vault.Reader` (PackageId set in Vault.Core.csproj).
       # Version comes from the csproj <Version>; keep it in step with the tag.
       - run: dotnet pack src/Vault.Core/Vault.Core.csproj -c Release -o nupkg
-      - run: dotnet nuget push "nupkg/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      - uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - run: dotnet nuget push "nupkg/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
