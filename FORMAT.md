@@ -4,20 +4,34 @@ Any reader — the reference C# `Vault.Core`, the npm port, a future Python port
 this document. The fixtures under [`testvectors/`](testvectors/) are the executable form of this spec: every
 reader decrypts them to the same map in CI.
 
-`formatVersion` for this document: **1**.
+`formatVersion` for this document: **2** (adds the keyring + vault identity; §6).
 
 ---
 
-## 1. The encryption key
+## 1. The keyring (encryption keys)
 
-A single symmetric **32-byte** key, base64-encoded, resolved in this order:
+One machine holds keys for **many vaults** (one per repo), so the key store is a **keyring**: a list of
+`<id> :: <base64 32-byte key>` pairings, one per [vault identity](#6-vault-identity) (§6). A line with **no
+`::`** is the **legacy bare key** — pre-identity vaults, and the migration fallback.
 
-1. `$VAULT_KEY` environment variable (base64 of the 32 raw bytes), else
-2. the file at `$VAULT_KEY_FILE`, else
-3. `~/.config/vault/key` (`%APPDATA%\vault\key` on Windows).
+```
+# ~/.config/vault/key   (%APPDATA%\vault\key on Windows; mode SHOULD be 600, never committed)
+9f3a1c4d8e2b7a60 :: Base64Key1==
+2b7a609f3a1c4d8e :: Base64Key2==
+Base64LegacyBareKey==
+```
 
-The key file contains exactly the base64 string (trailing whitespace/newline trimmed). Mode SHOULD be `600`.
-`vault keygen` creates it from a CSPRNG. The key is **never** committed and never leaves the machine.
+To decrypt a vault whose header carries identity **`id`**, a reader resolves the key in this order:
+
+1. `$VAULT_KEY` (base64 of the 32 raw bytes) — an explicit single-key override (CI), used regardless of `id`;
+2. `$VAULT_KEY_FILE` or `~/.config/vault/key`, parsed as a keyring → the pairing for `id`;
+3. the **legacy bare key** in that keyring (fallback — so a vault can *gain* an id without breaking readers
+   whose keyring hasn't been updated: assigning an id doesn't change the key).
+
+A vault with **no** identity (legacy/identity-less) uses `$VAULT_KEY` or the legacy bare key directly. Each key
+is 32 bytes; `vault init` creates a pairing from a CSPRNG, `vault keygen` writes a legacy bare key. Keys are
+**never** committed and never leave the machine (`vault share-key` copies one to the clipboard for out-of-band
+sharing).
 
 ## 2. The vault file — `<profile>.enc` (format v2)
 
@@ -25,14 +39,16 @@ One file per profile (`local.enc`, …) plus an optional `personal.enc` (§4a). 
 one `KEY=VALUE` line per var, so git can line-diff and auto-merge changes across worktrees:
 
 ```
-#vault:2
+#vault:2 id=9f3a1c4d8e2b7a60
 # Managed by `vault` — do not hand-edit. Non-secret values are plaintext; secrets are enc:<base64>.
 COSMOS_ENDPOINT=https://localhost:8081
 COSMOS_KEY=enc:2zbLw1xUXS7ZHR70XDL9oyTx1Z4cECACop002i0DkuEWTdA2/8CkAcgGSRM5GcOobTo=
 BLANK_SECRET=
 ```
 
-- First line is exactly **`#vault:2`** (format marker). Lines starting `#` and blank lines are ignored.
+- First line starts with **`#vault:2`** (format marker) and MAY carry the vault **identity** as an `id=<hex>`
+  token (§6) — space-separated, plaintext, committed. No `id=` → an identity-less vault (uses the legacy key).
+- All other lines starting `#` and blank lines are ignored.
 - Each entry: split on the **first** `=`. The **key** matches `^[A-Za-z_][A-Za-z0-9_]*$`. The **value** is
   either **plaintext** (non-secret) or an **`enc:<base64>`** token (secret), or empty.
 - Which keys are secret is decided by the **manifest** (`"secret": true`); the reader itself is
@@ -102,3 +118,25 @@ A reader for platform *P* and profile *R* produces the map:
 
 Boot-time readers seed these into the process environment **only for keys not already set**, so computed
 overrides (e.g. per-worktree values) and real cloud settings always win.
+
+## 6. Vault identity
+
+Because one machine's keyring (§1) holds keys for many vaults, each vault carries an **identity** — an opaque
+id (the reference impl uses 16 lowercase hex chars) — stamped in the `<profile>.enc` header (`#vault:2 id=…`)
+and committed. All profiles in one `vault/` dir share the vault's id; the reader reads the id from the shared
+file, looks up the matching key in the keyring, and uses it for every profile + `personal.enc`.
+
+Lifecycle commands (reference CLI):
+
+- **`vault init`** — give a vault its identity. On an **identity-less** vault it assigns a new id and **keeps
+  the existing key** (writes an `id :: key` pairing) — non-destructive, and readers with only the legacy bare
+  key still decrypt (the key is unchanged). On an **already-identified** vault it prompts, then resets to a new
+  id **and a new key**: values you can still decrypt are re-encrypted, secrets you can't are wiped (plaintext
+  config is kept). This is the "cloned the repo, want my own values" path.
+- **`vault rekey`** — rotate to a new id + new key, **preserving all values** (requires the current key; refuses
+  rather than wipe).
+- **`vault share-key`** — copy this vault's `id :: key` pairing to the clipboard, for out-of-band sharing.
+- **`vault add-key`** — add a teammate's `id :: key` pairing to your keyring.
+
+A reader that meets an unknown id (no keyring pairing, no legacy bare key) MUST fail clearly — it names the id
+and points at `vault add-key` — never silently fall back to a wrong key.

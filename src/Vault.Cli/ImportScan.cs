@@ -29,7 +29,7 @@ public static class ImportScan
             vault[k] = v;
             imported++;
         }
-        ctx.SharedFile.Write(ctx.Key, vault, ctx.IsSecret);
+        ctx.SharedFile.Write(ctx.Key, vault, ctx.IsSecret, ctx.VaultId);
         return (imported, unmapped);
     }
 

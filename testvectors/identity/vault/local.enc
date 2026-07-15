@@ -1,0 +1,4 @@
+#vault:2 id=abc123def4567890
+# Managed by `vault` — do not hand-edit. Non-secret values are plaintext; secrets are enc:<base64>.
+COSMOS_KEY=enc:2zbLw1xUXS7ZHR70XDL9oyTx1Z4cECACop002i0DkuEWTdA2/8CkAcgGSRM5GcOobTo=
+SHARED_SIGNING_KEY=enc:+9SEgmyaBb+UxXcpsyexM5dGgQ7hmaRnAkZ0oVw/ebpiDqkTaXgHFo+BnouvMA==

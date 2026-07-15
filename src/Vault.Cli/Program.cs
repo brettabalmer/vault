@@ -21,6 +21,10 @@ public static class Program
             return command switch
             {
                 "keygen" => Keygen(rest),
+                "init" => IdentityCommands.Init(rest),
+                "rekey" => IdentityCommands.Rekey(rest),
+                "share-key" => IdentityCommands.ShareKey(rest),
+                "add-key" => IdentityCommands.AddKey(rest),
                 "check" or "verify" => Check(rest),
                 "list" => List(rest),
                 "get" => Get(rest),
@@ -49,9 +53,10 @@ public static class Program
     private static int Keygen(string[] a)
     {
         var args = new Args(a);
-        var path = KeyStore.Generate(force: args.Has("force"));
-        AnsiConsole.MarkupLine($"[green]✓[/] Wrote a new 32-byte key to [bold]{Markup.Escape(path)}[/]");
-        AnsiConsole.MarkupLine("[grey]Keep it safe and out of git. Share it with teammates out-of-band.[/]");
+        // Legacy: write a bare (identity-less) key. Prefer `vault init`, which gives the vault an identity.
+        var path = KeyStore.SetLegacyBare(KeyStore.NewKey(), force: args.Has("force"));
+        AnsiConsole.MarkupLine($"[green]✓[/] Wrote a legacy bare key to [bold]{Markup.Escape(path)}[/]");
+        AnsiConsole.MarkupLine("[grey]Tip: `vault init` gives this vault its own identity + keyring entry (recommended for multi-repo use).[/]");
         return 0;
     }
 
@@ -346,7 +351,11 @@ public static class Program
         Row("vault export --platform P [--format dotenv|json|shell] [--no-defaults]", "materialize a platform slice (--no-defaults = vault values only, for cloud pushes)");
         Row("vault run [--profile p] -- CMD", "run CMD with the vault injected into its env");
         Row("vault import --from DIR", "one-time migration from scattered env files");
-        Row("vault keygen [--force]", "create ~/.config/vault/key");
+        Row("vault init [--force]", "give this vault an identity (new id; keeps the key on a legacy vault, new key on reset)");
+        Row("vault rekey", "rotate to a new id + key, preserving values (needs the current key)");
+        Row("vault share-key [--stdout]", "copy this vault's `id :: key` pairing to the clipboard for a teammate");
+        Row("vault add-key \"<id> :: <key>\" | --stdin | --clipboard", "add a teammate's shared pairing to your keyring");
+        Row("vault keygen [--force]", "write a legacy bare key (prefer `vault init`)");
         AnsiConsole.Write(t);
         AnsiConsole.MarkupLine("\n[grey]Global: --profile <local|azure-dev|azure-prod> (default local).[/]");
     }

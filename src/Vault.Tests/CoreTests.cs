@@ -105,6 +105,85 @@ public class EnvTextTests
     public void KeyValidation(string key, bool valid) => Assert.Equal(valid, EnvText.IsValidKey(key));
 }
 
+public class KeyringTests
+{
+    private static byte[] K(byte b) { var k = new byte[32]; Array.Fill(k, b); return k; }
+
+    [Fact]
+    public void ParsesPairingsAndLegacyBare()
+    {
+        var text = $"# comment\n{"aaaa"} :: {Convert.ToBase64String(K(1))}\nbbbb :: {Convert.ToBase64String(K(2))}\n{Convert.ToBase64String(K(9))}\n";
+        var ring = KeyStore.Parse(text);
+        Assert.Equal(2, ring.ById.Count);
+        Assert.Equal(K(1), ring.ById["aaaa"]);
+        Assert.Equal(K(2), ring.ById["bbbb"]);
+        Assert.Equal(K(9), ring.LegacyBare);
+    }
+
+    [Fact]
+    public void ParsesEmptyToNothing()
+    {
+        var ring = KeyStore.Parse("# just a comment\n\n");
+        Assert.Empty(ring.ById);
+        Assert.Null(ring.LegacyBare);
+    }
+}
+
+public class IdentityTests
+{
+    private static byte[] Key() => Convert.FromBase64String("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=");
+
+    [Theory]
+    [InlineData("#vault:2", null)]
+    [InlineData("#vault:2 id=abc123", "abc123")]
+    [InlineData("#vault:2 id=abc123 name=foo", "abc123")]
+    [InlineData("not a header", null)]
+    public void ParseIdReadsHeaderToken(string header, string? expected)
+        => Assert.Equal(expected, VaultFile.ParseId(header));
+
+    [Fact]
+    public void WriteStampsIdAndReadRoundTrips()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "vault-idtest-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var file = new VaultFile(dir, "local");
+            var map = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["A"] = "1", ["S"] = "shh" };
+            file.Write(Key(), map, n => n == "S", "deadbeef01");
+            Assert.Equal("deadbeef01", file.ReadId());
+            var got = file.Read(Key());
+            Assert.Equal("1", got["A"]);
+            Assert.Equal("shh", got["S"]);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void ReadPlaintextOnlyDropsSecrets()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "vault-idtest-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var file = new VaultFile(dir, "local");
+            file.Write(Key(), new SortedDictionary<string, string>(StringComparer.Ordinal) { ["A"] = "1", ["S"] = "shh" },
+                n => n == "S", "id01");
+            var map = VaultIdentity.ReadPlaintextOnly(file, out var dropped);
+            Assert.Equal("1", map["A"]);
+            Assert.False(map.ContainsKey("S"));   // encrypted → unrecoverable without the key
+            Assert.Contains("S", dropped);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void NewIdIsSixteenHexChars()
+    {
+        var id = VaultIdentity.NewId();
+        Assert.Equal(16, id.Length);
+        Assert.Matches("^[0-9a-f]{16}$", id);
+    }
+}
+
 /// <summary>Decrypts the committed testvectors and asserts against expected.json (the cross-language contract).</summary>
 public class ConformanceTests
 {

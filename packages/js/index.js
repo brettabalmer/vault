@@ -7,17 +7,53 @@ import { dirname, join } from "node:path";
 
 const VERSION = 0x01;
 
-/** Resolve the 32-byte key from $VAULT_KEY or ~/.config/vault/key. Returns a Buffer or null. */
-export function loadKey() {
-  const inline = process.env.VAULT_KEY;
-  if (inline && inline.trim()) {
-    const b = Buffer.from(inline.trim(), "base64");
-    return b.length === 32 ? b : null;
-  }
-  const path = join(homedir(), ".config", "vault", "key");
-  if (!existsSync(path)) return null;
-  const b = Buffer.from(readFileSync(path, "utf8").trim(), "base64");
+function decodeKey(b64) {
+  const b = Buffer.from(String(b64).trim(), "base64");
   return b.length === 32 ? b : null;
+}
+
+/** The vault identity from a `#vault:2 id=…` header, or null (legacy/identity-less). */
+export function readVaultId(encPath) {
+  try {
+    const first = readFileSync(encPath, "utf8").split("\n", 1)[0] ?? "";
+    if (!first.trimStart().startsWith("#vault:2")) return null;
+    for (const tok of first.split(" ").filter(Boolean))
+      if (tok.startsWith("id=")) {
+        const id = tok.slice(3).trim();
+        return id.length ? id : null;
+      }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the 32-byte key for a vault identity `id` from the keyring (FORMAT.md §1):
+ * $VAULT_KEY → keyring[id] → legacy bare key. Returns a Buffer or null.
+ */
+export function loadKey(id = null) {
+  const inline = process.env.VAULT_KEY;
+  if (inline && inline.trim()) return decodeKey(inline);
+
+  const path =
+    process.env.VAULT_KEY_FILE && existsSync(process.env.VAULT_KEY_FILE)
+      ? process.env.VAULT_KEY_FILE
+      : join(homedir(), ".config", "vault", "key");
+  if (!existsSync(path)) return null;
+
+  let bare = null;
+  for (const raw of readFileSync(path, "utf8").split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const sep = line.indexOf("::");
+    if (sep < 0) {
+      bare ??= decodeKey(line);
+      continue;
+    }
+    if (id !== null && line.slice(0, sep).trim() === id) return decodeKey(line.slice(sep + 2));
+  }
+  return bare; // legacy bare-key fallback
 }
 
 /** Walk up from `start` (default cwd) for a `vault/manifest.json`; returns the `vault/` dir or null. */
@@ -120,8 +156,9 @@ export function resolve({ vaultDir, platform, profile = "local", key }) {
 export function seedEnvironment({ platform, profile = "local", cwd, enabled = true } = {}) {
   if (!enabled || process.env.WEBSITE_INSTANCE_ID) return [];
   const vaultDir = findVaultDir(cwd);
-  const key = loadKey();
-  if (!vaultDir || !key) return [];
+  if (!vaultDir) return [];
+  const key = loadKey(readVaultId(join(vaultDir, `${profile}.enc`)));
+  if (!key) return [];
   const map = resolve({ vaultDir, platform, profile, key });
   const set = [];
   for (const [k, val] of Object.entries(map)) {

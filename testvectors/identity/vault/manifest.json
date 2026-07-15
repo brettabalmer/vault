@@ -1,0 +1,5 @@
+{ "formatVersion": 1, "vars": [
+  { "key": "COSMOS_ENDPOINT", "category": "Cosmos", "description": "endpoint", "required": true, "secret": false, "platforms": ["worker"], "profiles": ["local"], "default": "https://localhost:8081" },
+  { "key": "COSMOS_KEY", "category": "Cosmos", "description": "key", "required": true, "secret": true, "platforms": ["worker"], "profiles": ["local"] },
+  { "key": "SHARED_SIGNING_KEY", "category": "Events", "description": "shared", "required": true, "secret": true, "platforms": ["worker","sveltekit"], "profiles": ["local"] }
+] }

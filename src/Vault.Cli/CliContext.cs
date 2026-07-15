@@ -43,7 +43,11 @@ public sealed class CliContext
     public Manifest Manifest => _manifest ??= Manifest.Load(ManifestPath);
 
     private byte[]? _key;
-    public byte[] Key => _key ??= KeyStore.Load();
+    /// <summary>The key for this vault's identity (from the shared file's header), via the keyring.</summary>
+    public byte[] Key => _key ??= KeyStore.LoadFor(SharedFile.ReadId());
+
+    /// <summary>This vault's identity (from <c>&lt;profile&gt;.enc</c>), or null if it has none yet (legacy).</summary>
+    public string? VaultId => SharedFile.ReadId();
 
     /// <summary>Shared, committed values for the active profile (<c>&lt;profile&gt;.enc</c>).</summary>
     public VaultFile SharedFile => new(VaultDir, Profile);
