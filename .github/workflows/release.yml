@@ -1,9 +1,9 @@
 name: release
 
 # Tag a release: `git tag v0.1.0 && git push --tags`. Builds NativeAOT binaries per-OS, attaches them to a
-# GitHub Release, and (optionally) publishes the reader packages. npm publish is gated on the `PUBLISH_NPM`
-# repo variable + `NPM_TOKEN` secret; NuGet publish on `PUBLISH_NUGET` + the `NUGET_USER` variable, using
-# Trusted Publishing (OIDC) — no NuGet API-key secret.
+# GitHub Release, and (optionally) publishes the reader packages. Both use Trusted Publishing (OIDC) — no
+# long-lived tokens: npm gated on the `PUBLISH_NPM` variable, NuGet on `PUBLISH_NUGET` + the `NUGET_USER`
+# variable. Configure the trusted-publisher policy on npmjs.com / nuget.org for repo + workflow `release.yml`.
 
 on:
   push:
@@ -51,18 +51,22 @@ jobs:
     runs-on: ubuntu-latest
     needs: binaries
     if: ${{ vars.PUBLISH_NPM == 'true' }}
+    # Trusted Publishing (OIDC) — no NPM_TOKEN. Configure a trusted publisher on npmjs.com for the package
+    # @brettbalmer/vault-reader (repo brettabalmer/vault, workflow release.yml). Needs npm >= 11.5.1.
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
+      - run: npm install -g npm@latest # OIDC trusted publishing requires npm >= 11.5.1
       - working-directory: packages/js
         run: node --test
       - working-directory: packages/js
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   nuget:
     runs-on: ubuntu-latest
