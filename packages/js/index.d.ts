@@ -1,4 +1,4 @@
-/** @brettabalmer/vault-reader — types. See FORMAT.md. */
+/** @brettbalmer/vault-reader — types. See FORMAT.md. */
 
 /** The vault identity from a `#vault:2 id=…` header, or null (legacy/identity-less). */
 export function readVaultId(encPath: string): string | null;

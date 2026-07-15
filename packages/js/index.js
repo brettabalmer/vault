@@ -1,4 +1,4 @@
-// @brettabalmer/vault-reader — read a `vault` encrypted secrets file and seed process.env.
+// @brettbalmer/vault-reader — read a `vault` encrypted secrets file and seed process.env.
 // Framework-agnostic port of the reference reader (see ../../FORMAT.md). Node builtins only.
 import { createDecipheriv } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
