@@ -218,6 +218,69 @@ public class ManifestEditTests
     }
 }
 
+public class EnvSeederTests
+{
+    private static byte[] Key() => Convert.FromBase64String("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=");
+
+    private static void WithEnv(Action body)
+    {
+        string?[] names = { "VAULT_DIR", "VAULT_KEY", "VAULT_KEY_FILE", "VAULT_PROFILE", "WEBSITE_INSTANCE_ID",
+                            "VAULTSEED_PLAIN", "VAULTSEED_SECRET" };
+        var saved = names.ToDictionary(n => n!, n => Environment.GetEnvironmentVariable(n!));
+        foreach (var n in names) Environment.SetEnvironmentVariable(n!, null);
+        try { body(); }
+        finally { foreach (var (n, v) in saved) Environment.SetEnvironmentVariable(n, v); }
+    }
+
+    private static string MakeVault(string id)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "vault-seed-" + Guid.NewGuid().ToString("N"));
+        var vaultDir = Path.Combine(dir, "vault");
+        var doc = new ManifestDoc();
+        doc.Vars.Add(new ManifestVar { Key = "VAULTSEED_PLAIN", Secret = false, Platforms = { "worker" } });
+        doc.Vars.Add(new ManifestVar { Key = "VAULTSEED_SECRET", Secret = true, Platforms = { "worker" } });
+        Manifest.SaveDoc(Path.Combine(vaultDir, "manifest.json"), doc);
+        var file = new VaultFile(vaultDir, "local");
+        var map = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["VAULTSEED_PLAIN"] = "pv", ["VAULTSEED_SECRET"] = "sv" };
+        file.Write(Key(), map, n => n == "VAULTSEED_SECRET", id);
+        return vaultDir;
+    }
+
+    [Fact]
+    public void SeedsFromKeyringByIdentity()
+    {
+        WithEnv(() =>
+        {
+            var vaultDir = MakeVault("seedid01");
+            var keyring = Path.Combine(vaultDir, "..", "keyring");
+            File.WriteAllText(keyring, $"seedid01 :: {Convert.ToBase64String(Key())}\n");
+            Environment.SetEnvironmentVariable("VAULT_DIR", vaultDir);
+            Environment.SetEnvironmentVariable("VAULT_KEY_FILE", keyring); // resolve key BY the vault's id
+
+            var seeded = EnvSeeder.SeedEnvironment("worker");
+            Assert.Equal("pv", Environment.GetEnvironmentVariable("VAULTSEED_PLAIN"));
+            Assert.Equal("sv", Environment.GetEnvironmentVariable("VAULTSEED_SECRET"));
+            Assert.Contains("VAULTSEED_SECRET", seeded);
+        });
+    }
+
+    [Fact]
+    public void NoOpInAzureAndDoesNotThrowWithoutKey()
+    {
+        WithEnv(() =>
+        {
+            var vaultDir = MakeVault("seedid02");
+            Environment.SetEnvironmentVariable("VAULT_DIR", vaultDir);
+            Environment.SetEnvironmentVariable("VAULT_KEY_FILE", Path.Combine(vaultDir, "..", "nope")); // no key
+            Environment.SetEnvironmentVariable("WEBSITE_INSTANCE_ID", "abc");
+            Assert.Empty(EnvSeeder.SeedEnvironment("worker")); // Azure gate
+            Environment.SetEnvironmentVariable("WEBSITE_INSTANCE_ID", null);
+            Assert.Empty(EnvSeeder.SeedEnvironment("worker")); // no key → silent no-op, no throw
+            Assert.Null(Environment.GetEnvironmentVariable("VAULTSEED_PLAIN"));
+        });
+    }
+}
+
 /// <summary>Decrypts the committed testvectors and asserts against expected.json (the cross-language contract).</summary>
 public class ConformanceTests
 {

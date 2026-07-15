@@ -1,7 +1,8 @@
 name: release
 
 # Tag a release: `git tag v0.1.0 && git push --tags`. Builds NativeAOT binaries per-OS, attaches them to a
-# GitHub Release, and (optionally) publishes the npm reader. Homebrew tap update + NuGet are opt-in via secrets.
+# GitHub Release, and (optionally) publishes the reader packages. npm publish is gated on the `PUBLISH_NPM`
+# repo variable + `NPM_TOKEN` secret; NuGet publish on `PUBLISH_NUGET` + `NUGET_API_KEY`.
 
 on:
   push:
@@ -61,3 +62,20 @@ jobs:
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  nuget:
+    runs-on: ubuntu-latest
+    needs: binaries
+    if: ${{ vars.PUBLISH_NUGET == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test src/Vault.Tests/Vault.Tests.csproj -c Release
+      # The reader library ships as `Brettabalmer.Vault.Reader` (PackageId set in Vault.Core.csproj).
+      # Version comes from the csproj <Version>; keep it in step with the tag.
+      - run: dotnet pack src/Vault.Core/Vault.Core.csproj -c Release -o nupkg
+      - run: dotnet nuget push "nupkg/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
