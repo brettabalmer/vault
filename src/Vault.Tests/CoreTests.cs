@@ -184,6 +184,40 @@ public class IdentityTests
     }
 }
 
+public class ManifestEditTests
+{
+    [Fact]
+    public void LoadDocMissingReturnsEmptyUnlessMustExist()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "vault-nomani-" + Guid.NewGuid().ToString("N"), "manifest.json");
+        var doc = Manifest.LoadDoc(path);          // mustExist:false
+        Assert.Empty(doc.Vars);
+        Assert.Throws<FileNotFoundException>(() => Manifest.LoadDoc(path, mustExist: true));
+    }
+
+    [Fact]
+    public void SaveAndLoadRoundTripsSortedByKey()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "vault-mani-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(dir, "manifest.json");
+        try
+        {
+            var doc = new ManifestDoc();
+            doc.Vars.Add(new ManifestVar { Key = "ZED", Secret = true });
+            doc.Vars.Add(new ManifestVar { Key = "ALPHA", Secret = false, Required = true, Category = "C" });
+            Manifest.SaveDoc(path, doc);
+
+            var back = Manifest.LoadDoc(path);
+            Assert.Equal(new[] { "ALPHA", "ZED" }, back.Vars.Select(v => v.Key).ToArray()); // sorted
+            var alpha = back.Vars.First(v => v.Key == "ALPHA");
+            Assert.True(alpha.Required);
+            Assert.False(alpha.Secret);
+            Assert.Equal("C", alpha.Category);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+}
+
 /// <summary>Decrypts the committed testvectors and asserts against expected.json (the cross-language contract).</summary>
 public class ConformanceTests
 {

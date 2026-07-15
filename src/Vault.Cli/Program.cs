@@ -21,6 +21,7 @@ public static class Program
             return command switch
             {
                 "keygen" => Keygen(rest),
+                "manifest" => ManifestCommands.Run(rest),
                 "init" => IdentityCommands.Init(rest),
                 "rekey" => IdentityCommands.Rekey(rest),
                 "share-key" => IdentityCommands.ShareKey(rest),
@@ -351,7 +352,10 @@ public static class Program
         Row("vault export --platform P [--format dotenv|json|shell] [--no-defaults]", "materialize a platform slice (--no-defaults = vault values only, for cloud pushes)");
         Row("vault run [--profile p] -- CMD", "run CMD with the vault injected into its env");
         Row("vault import --from DIR", "one-time migration from scattered env files");
-        Row("vault init [--force]", "give this vault an identity (new id; keeps the key on a legacy vault, new key on reset)");
+        Row("vault manifest add KEY [--category C --secret --required --platforms a,b …]", "define a var (creates vault/manifest.json if absent)");
+        Row("vault manifest set KEY [--no-secret --default V …]", "edit an existing var's fields");
+        Row("vault manifest rm KEY", "remove a var definition");
+        Row("vault init [--force]", "give this vault an identity (new id; keeps the key on a legacy vault, new key on reset) — creates a manifest if none exists");
         Row("vault rekey", "rotate to a new id + key, preserving values (needs the current key)");
         Row("vault share-key [--stdout]", "copy this vault's `id :: key` pairing to the clipboard for a teammate");
         Row("vault add-key \"<id> :: <key>\" | --stdin | --clipboard", "add a teammate's shared pairing to your keyring");

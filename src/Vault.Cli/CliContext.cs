@@ -39,6 +39,27 @@ public sealed class CliContext
             + "Set $VAULT_DIR or run from within a project that has one.");
     }
 
+    /// <summary>
+    /// Like <see cref="Discover"/>, but when no manifest exists it creates an empty one at
+    /// <c>$VAULT_DIR</c> (or <c>&lt;cwd&gt;/vault</c>) — so <c>init</c>/<c>manifest add</c> can bootstrap a project.
+    /// Returns the context plus whether it just created the manifest.
+    /// </summary>
+    public static (CliContext Ctx, bool Created) DiscoverOrCreate(string profile)
+    {
+        try { return (Discover(profile), false); }
+        catch (CliError)
+        {
+            var explicitDir = Environment.GetEnvironmentVariable("VAULT_DIR");
+            var vaultDir = !string.IsNullOrWhiteSpace(explicitDir)
+                ? Path.GetFullPath(explicitDir)
+                : Path.Combine(Directory.GetCurrentDirectory(), "vault");
+            var manifestPath = Path.Combine(vaultDir, "manifest.json");
+            var created = !File.Exists(manifestPath);
+            if (created) Manifest.SaveDoc(manifestPath, new ManifestDoc());
+            return (new CliContext(vaultDir, profile), created);
+        }
+    }
+
     private Manifest? _manifest;
     public Manifest Manifest => _manifest ??= Manifest.Load(ManifestPath);
 

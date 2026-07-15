@@ -16,7 +16,10 @@ internal static class IdentityCommands
     public static int Init(string[] a)
     {
         var args = new Args(a, "profile");
-        var ctx = CliContext.Discover(args.Value("profile", "local"));
+        var (ctx, createdManifest) = CliContext.DiscoverOrCreate(args.Value("profile", "local"));
+        if (createdManifest)
+            AnsiConsole.MarkupLine($"[green]✓[/] Created a new manifest at [bold]{Markup.Escape(ctx.ManifestPath)}[/] "
+                + "[grey](define vars with `vault manifest add`).[/]");
         var existingId = ctx.VaultId;
 
         if (existingId is null)

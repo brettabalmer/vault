@@ -54,16 +54,31 @@ public sealed class Manifest
         _byKey = doc.Vars.ToDictionary(v => v.Key, StringComparer.Ordinal);
     }
 
-    public static Manifest Load(string manifestPath)
+    public static Manifest Load(string manifestPath) => new(LoadDoc(manifestPath, mustExist: true));
+
+    /// <summary>Load the editable document. <paramref name="mustExist"/> false → a missing file returns an empty doc.</summary>
+    public static ManifestDoc LoadDoc(string manifestPath, bool mustExist = false)
     {
         if (!File.Exists(manifestPath))
-            throw new FileNotFoundException($"Manifest not found at {manifestPath}. Expected `vault/manifest.json`.");
+        {
+            if (mustExist)
+                throw new FileNotFoundException($"Manifest not found at {manifestPath}. Expected `vault/manifest.json`.");
+            return new ManifestDoc();
+        }
         var json = File.ReadAllText(manifestPath);
         ManifestDoc? doc;
         try { doc = JsonSerializer.Deserialize(json, ManifestJsonContext.Default.ManifestDoc); }
         catch (JsonException e) { throw new InvalidOperationException($"manifest.json is not valid JSON: {e.Message}", e); }
         if (doc is null) throw new InvalidOperationException("manifest.json deserialized to null.");
-        return new Manifest(doc);
+        return doc;
+    }
+
+    /// <summary>Serialize the document back to <paramref name="manifestPath"/> (indented, sorted by key).</summary>
+    public static void SaveDoc(string manifestPath, ManifestDoc doc)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(manifestPath)!);
+        doc.Vars.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
+        File.WriteAllText(manifestPath, JsonSerializer.Serialize(doc, ManifestJsonContext.Default.ManifestDoc));
     }
 
     public ManifestVar? Find(string key) => _byKey.GetValueOrDefault(key);

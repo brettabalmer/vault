@@ -95,6 +95,14 @@ Each entry:
 `vault check` fails when a `required` var (for the active profile) is absent from both the vault and `default`,
 or when a present value fails `validate`.
 
+The manifest is authored either by hand or via the CLI: **`vault manifest add KEY [flags]`** creates a var
+(and bootstraps `vault/manifest.json` if it doesn't exist yet — as does `vault init`), **`vault manifest set
+KEY [flags]`** edits an existing var's fields, and **`vault manifest rm KEY`** removes one. Field flags mirror
+the columns above (`--category --description --platforms a,b --profiles a,b --default --validate --source
+--example`, and booleans `--required/--no-required --secret/--no-secret --personal/--no-personal`). New vars
+default to `secret: true` (fail-safe). Editing through the CLI rewrites the file sorted by key (indented JSON;
+hand-authored comments are not preserved).
+
 ## 4a. Personal overrides — `personal.enc`
 
 Alongside the committed `<profile>.enc` (shared, same for everyone), a reader also loads an optional
