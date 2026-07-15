@@ -17,13 +17,10 @@ each platform's process environment at boot, so **you never hand-edit a `.env` o
 Built because real projects scatter secrets across `.env`, `.env.local`, several `local.settings.json`, and
 deploy files, with no record of what's required or what a new developer must set.
 
-> **Packages** — the readers are on the public registries, **not** GitHub Packages (so they don't appear in
-> this repo's "Packages" sidebar): npm [`@brettbalmer/vault-reader`](https://www.npmjs.com/package/@brettbalmer/vault-reader),
+> **Packages** —  npm [`@brettbalmer/vault-reader`](https://www.npmjs.com/package/@brettbalmer/vault-reader),
 > NuGet [`Brettabalmer.Vault.Reader`](https://www.nuget.org/packages/Brettabalmer.Vault.Reader). The CLI ships
 > as a binary via [Releases](https://github.com/brettabalmer/vault/releases) + a Homebrew tap.
 
-> **Name clash** — `vault` collides with HashiCorp Vault's CLI/`VAULT_*` convention. This tool's key env var is
-> `VAULT_KEY` and its key lives at `~/.config/vault/key`; installing the binary shadows `hashicorp/vault` on PATH.
 
 ---
 
