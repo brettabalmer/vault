@@ -68,6 +68,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: binaries
     if: ${{ vars.PUBLISH_NUGET == 'true' }}
+    # Trusted Publishing (OIDC) — no long-lived API key. Requires a trusted-publisher policy on nuget.org for
+    # repo brettabalmer/vault + workflow release.yml + glob `Brettabalmer.Vault.*`, and the NUGET_USER variable.
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -77,6 +82,8 @@ jobs:
       # The reader library ships as `Brettabalmer.Vault.Reader` (PackageId set in Vault.Core.csproj).
       # Version comes from the csproj <Version>; keep it in step with the tag.
       - run: dotnet pack src/Vault.Core/Vault.Core.csproj -c Release -o nupkg
-      - run: dotnet nuget push "nupkg/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      - uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - run: dotnet nuget push "nupkg/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
