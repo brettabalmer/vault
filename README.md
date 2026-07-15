@@ -5,6 +5,10 @@
 [![NuGet](https://img.shields.io/nuget/v/Brettabalmer.Vault.Reader?label=nuget%20Brettabalmer.Vault.Reader)](https://www.nuget.org/packages/Brettabalmer.Vault.Reader)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+<p align="center">
+  <img src="docs/tui.gif" alt="vault — the full-screen TUI browsing a project's secrets: categories on the left, masked values and required/optional badges on the right, live verify status in the footer" width="900">
+</p>
+
 A tiny, encrypted, **git-committable** secrets store for local development. One manifest documents every
 variable (category, description, whether it's required, which platforms need it); one text vault file holds the
 values — non-secrets in plaintext, secrets as per-value AES-256-GCM tokens. Native readers seed the values into
