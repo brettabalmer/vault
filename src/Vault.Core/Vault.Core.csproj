@@ -11,7 +11,7 @@
     <!-- Published to NuGet as the reader library (see .github/workflows/release.yml). The assembly/namespace
          stay `Vault.Core`; the package id is author-scoped because the bare `Vault.Core` id is already taken. -->
     <PackageId>Brettabalmer.Vault.Reader</PackageId>
-    <Version>0.3.3</Version>
+    <Version>0.4.0</Version>
     <Authors>brettabalmer</Authors>
     <Description>Read a `vault` encrypted secrets file (AES-256-GCM per-value v2 + keyring identity) and seed the process environment. Dev-only, silent. Namespace: Vault.Core; call EnvSeeder.SeedEnvironment(platform).</Description>
     <PackageProjectUrl>https://github.com/brettabalmer/vault</PackageProjectUrl>

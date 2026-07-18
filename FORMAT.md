@@ -83,7 +83,7 @@ Each entry:
 | `key` | string | the env var name (matches §3 key rule) |
 | `category` | string | grouping for the UI |
 | `description` | string | human/agent explanation |
-| `required` | bool | must be present for `vault check` to pass |
+| `required` | enum | `"yes"` (needed for local dev **and** the deployed cloud apps) \| `"devOnly"` (needed for local dev only — e.g. sandbox/integration creds — not expected in cloud) \| `"no"` (optional). A legacy JSON bool still loads (`true`→`yes`, `false`→`no`) and is rewritten to the string form on the next save. `vault check` fails if a `yes` **or** `devOnly` var is unset locally; cloud-deploy checks look at `yes` only. |
 | `secret` | bool | mask in output; `false` = plain config |
 | `platforms` | string[] | which readers surface it (`sveltekit`, `worker`, `events`, `python`, `tools`, `deploy`) |
 | `profiles` | string[] | which vault files may hold a value (`local`, `azure-dev`, `azure-prod`) |
@@ -99,7 +99,8 @@ The manifest is authored either by hand or via the CLI: **`vault manifest add KE
 (and bootstraps `vault/manifest.json` if it doesn't exist yet — as does `vault init`), **`vault manifest set
 KEY [flags]`** edits an existing var's fields, and **`vault manifest rm KEY`** removes one. Field flags mirror
 the columns above (`--category --description --platforms a,b --profiles a,b --default --validate --source
---example`, and booleans `--required/--no-required --secret/--no-secret --personal/--no-personal`). New vars
+--example --required yes|devOnly|no`, and booleans `--required`/`--no-required` (sugar for `yes`/`no`),
+`--secret/--no-secret --personal/--no-personal`). New vars
 default to `secret: true` (fail-safe). Editing through the CLI rewrites the file sorted by key (indented JSON;
 hand-authored comments are not preserved).
 

@@ -1,6 +1,6 @@
 {
   "name": "@brettbalmer/vault-reader",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Read a `vault` encrypted secrets file (AES-256-GCM) and seed process.env. See the vault tool.",
   "type": "module",
   "main": "index.js",

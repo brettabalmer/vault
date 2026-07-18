@@ -204,16 +204,81 @@ public class ManifestEditTests
         {
             var doc = new ManifestDoc();
             doc.Vars.Add(new ManifestVar { Key = "ZED", Secret = true });
-            doc.Vars.Add(new ManifestVar { Key = "ALPHA", Secret = false, Required = true, Category = "C" });
+            doc.Vars.Add(new ManifestVar { Key = "ALPHA", Secret = false, Required = RequiredLevel.Yes, Category = "C" });
             Manifest.SaveDoc(path, doc);
 
             var back = Manifest.LoadDoc(path);
             Assert.Equal(new[] { "ALPHA", "ZED" }, back.Vars.Select(v => v.Key).ToArray()); // sorted
             var alpha = back.Vars.First(v => v.Key == "ALPHA");
-            Assert.True(alpha.Required);
+            Assert.Equal(RequiredLevel.Yes, alpha.Required);
             Assert.False(alpha.Secret);
             Assert.Equal("C", alpha.Category);
         }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void RequiredTriStateRoundTripsAndAcceptsLegacyBool()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "vault-req-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(dir, "manifest.json");
+        try
+        {
+            // Legacy boolean `required` (true/false) plus a var with no `required` field at all must still load.
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(path, """
+            { "formatVersion": 1, "vars": [
+              { "key": "LEGACY_TRUE", "required": true },
+              { "key": "LEGACY_FALSE", "required": false },
+              { "key": "NO_FIELD" },
+              { "key": "STR_YES", "required": "yes" },
+              { "key": "STR_DEVONLY", "required": "devOnly" },
+              { "key": "STR_NO", "required": "no" }
+            ] }
+            """);
+
+            var doc = Manifest.LoadDoc(path);
+            RequiredLevel Lvl(string k) => doc.Vars.First(v => v.Key == k).Required;
+            Assert.Equal(RequiredLevel.Yes, Lvl("LEGACY_TRUE"));
+            Assert.Equal(RequiredLevel.No, Lvl("LEGACY_FALSE"));
+            Assert.Equal(RequiredLevel.No, Lvl("NO_FIELD")); // default
+            Assert.Equal(RequiredLevel.Yes, Lvl("STR_YES"));
+            Assert.Equal(RequiredLevel.DevOnly, Lvl("STR_DEVONLY"));
+            Assert.Equal(RequiredLevel.No, Lvl("STR_NO"));
+
+            // devOnly is required for local dev (a check failure if unset) but distinct from yes.
+            Assert.True(doc.Vars.First(v => v.Key == "STR_DEVONLY").RequiredForDev);
+            Assert.False(doc.Vars.First(v => v.Key == "STR_NO").RequiredForDev);
+
+            // Round-trips to the canonical string form (never back to a bool).
+            Manifest.SaveDoc(path, doc);
+            var json = File.ReadAllText(path);
+            Assert.Contains("\"required\": \"devOnly\"", json);
+            Assert.Contains("\"required\": \"yes\"", json);
+            Assert.DoesNotContain("\"required\": true", json);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void DevOnlyStillCountsAsCheckFailureWhenUnset()
+    {
+        // A devOnly var absent from both vault and default is a `vault check` failure (MissingRequired),
+        // preserving the pre-tri-state behavior of `required: true`.
+        var doc = new ManifestDoc();
+        doc.Vars.Add(new ManifestVar { Key = "SANDBOX", Required = RequiredLevel.DevOnly });
+        var manifest = LoadFromDoc(doc);
+        var failures = Resolve.Failures(manifest, new Dictionary<string, string>(), "local");
+        Assert.Contains(failures, f => f.Var.Key == "SANDBOX" && f.State == VarState.MissingRequired);
+    }
+
+    // Manifest has no public doc ctor; round-trip through disk to get an indexed Manifest.
+    private static Manifest LoadFromDoc(ManifestDoc doc)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "vault-lfd-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(dir, "manifest.json");
+        Manifest.SaveDoc(path, doc);
+        try { return Manifest.Load(path); }
         finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
     }
 }

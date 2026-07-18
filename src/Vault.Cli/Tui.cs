@@ -232,7 +232,12 @@ public sealed class Tui
                 VarState.Invalid => "[yellow]▲[/]",
                 _ => "[grey]○[/]",
             };
-            var badge = s.Var.Required ? "[red]REQ[/]" : "[grey]opt[/]";
+            var badge = s.Var.Required switch
+            {
+                RequiredLevel.Yes => "[red]REQ[/]",
+                RequiredLevel.DevOnly => "[yellow]DEV[/]",
+                _ => "[grey]opt[/]",
+            };
             var key = sel ? $"[black on white] {Markup.Escape(s.Var.Key)} [/]" : $"[bold]{Markup.Escape(s.Var.Key)}[/]";
             rows.Add(new Markup($"{glyph} {badge} {key}"));
             rows.Add(new Markup($"    {ValueLine(s)}"));
@@ -259,7 +264,7 @@ public sealed class Tui
     {
         // Verify runs continuously: this summary is recomputed from _statuses every render, so it's always
         // current after a load, profile switch, or value save/clear — no manual step.
-        int required = _statuses.Count(s => s.Var.Required);
+        int required = _statuses.Count(s => s.Var.RequiredForDev);
         int attention = _statuses.Count(s => s.State is VarState.MissingRequired or VarState.Invalid);
         var verify = attention == 0
             ? $"[green]✓ verify: all {required} required present & valid[/]"

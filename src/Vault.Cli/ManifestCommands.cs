@@ -7,12 +7,13 @@ namespace Vault.Cli;
 /// Define the manifest from the CLI: <c>vault manifest add|set|rm KEY [flags]</c>. <c>add</c> creates a new var
 /// (bootstrapping <c>vault/manifest.json</c> if absent), <c>set</c> edits fields of an existing one, <c>rm</c>
 /// removes it. Field flags: <c>--category --description --platforms a,b --profiles a,b --default --validate
-/// --source --example</c>; booleans <c>--required/--no-required --secret/--no-secret --personal/--no-personal</c>.
+/// --source --example --required yes|devOnly|no</c>; booleans <c>--required/--no-required (sugar for yes/no)
+/// --secret/--no-secret --personal/--no-personal</c>.
 /// </summary>
 internal static class ManifestCommands
 {
     private static readonly string[] ValueFlags =
-        { "profile", "category", "description", "platforms", "profiles", "default", "validate", "source", "example" };
+        { "profile", "category", "description", "platforms", "profiles", "default", "validate", "source", "example", "required" };
 
     public static int Run(string[] a)
     {
@@ -52,7 +53,7 @@ internal static class ManifestCommands
         Manifest.SaveDoc(ctx.ManifestPath, doc);
 
         AnsiConsole.MarkupLine($"[green]✓[/] {(existing is null ? "added" : "updated")} [bold]{Markup.Escape(key)}[/] "
-            + $"[grey]({Markup.Escape(v.Category)} · {(v.Secret ? "secret" : "config")}{(v.Required ? " · required" : "")}{(v.Personal ? " · personal" : "")})[/]");
+            + $"[grey]({Markup.Escape(v.Category)} · {(v.Secret ? "secret" : "config")}{v.Required switch { RequiredLevel.Yes => " · required", RequiredLevel.DevOnly => " · dev-only", _ => "" }}{(v.Personal ? " · personal" : "")})[/]");
         return 0;
     }
 
@@ -82,8 +83,14 @@ internal static class ManifestCommands
         if (args.Value("platforms") is { } p) v.Platforms = SplitList(p);
         if (args.Value("profiles") is { } pr) v.Profiles = SplitList(pr);
 
-        if (args.Has("required")) v.Required = true;
-        if (args.Has("no-required")) v.Required = false;
+        if (args.Has("no-required")) v.Required = RequiredLevel.No;
+        if (args.Has("required"))
+        {
+            var lvl = args.Value("required"); // valued form (`--required devOnly`); bare `--required` → yes
+            if (lvl is null) v.Required = RequiredLevel.Yes;
+            else if (RequiredLevelConverter.TryParse(lvl, out var parsed)) v.Required = parsed;
+            else throw new CliError($"--required must be yes|devOnly|no (got '{lvl}').");
+        }
         if (args.Has("secret")) v.Secret = true;
         if (args.Has("no-secret")) v.Secret = false;
         if (args.Has("personal")) v.Personal = true;

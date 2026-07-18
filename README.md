@@ -42,7 +42,8 @@ npm install @brettbalmer/vault-reader
 Three pieces, two of them committed and edited **only through the tool**:
 
 - **`vault/manifest.json`** (committed, plaintext) — the schema: every var's `category`, `description`,
-  `required`, `secret`, `personal`, `platforms`, `default`, optional `validate` regex, and an agent `source`
+  `required` (`yes` \| `devOnly` \| `no` — `devOnly` = needed for local dev but not the deployed cloud apps),
+  `secret`, `personal`, `platforms`, `default`, optional `validate` regex, and an agent `source`
   hint (`emulator` \| `derived` \| `az` \| `user` \| `external`). The single source of truth for "what does a
   new dev need".
 - **`vault/local.enc`** (committed, encrypted) — the values, as a **text file** (see [`FORMAT.md`](FORMAT.md)):
@@ -108,8 +109,9 @@ vault describe KEY          a var's metadata
 vault export --platform P   materialize a slice (--format dotenv|json|shell) (--no-defaults)
 vault run -- CMD            run CMD with the vault injected into its env
 
-vault manifest add KEY      define a var (--category --description --platforms a,b --default --required
-                              --secret --personal … and their --no- forms); creates the manifest if absent
+vault manifest add KEY      define a var (--category --description --platforms a,b --default
+                              --required yes|devOnly|no --secret --personal … and their --no- forms);
+                              creates the manifest if absent
 vault manifest set KEY      edit an existing var's fields
 vault manifest rm KEY       remove a var definition
 vault import --from DIR     one-time migration from scattered env files

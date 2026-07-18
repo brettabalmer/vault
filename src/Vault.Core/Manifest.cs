@@ -4,13 +4,66 @@ using System.Text.RegularExpressions;
 
 namespace Vault.Core;
 
+/// <summary>
+/// How strongly a var is required, per FORMAT.md §4. Ordered so <c>default</c> is <see cref="No"/> (matching the
+/// pre-tri-state boolean default of <c>false</c>).
+/// <list type="bullet">
+/// <item><see cref="No"/> — optional everywhere.</item>
+/// <item><see cref="DevOnly"/> — required for local dev only (e.g. sandbox/integration creds); not expected in a
+/// deployed cloud environment.</item>
+/// <item><see cref="Yes"/> — required for local dev <b>and</b> in the deployed cloud apps.</item>
+/// </list>
+/// </summary>
+public enum RequiredLevel { No, DevOnly, Yes }
+
+/// <summary>
+/// (De)serializes <see cref="RequiredLevel"/> as the canonical strings <c>"no"</c>/<c>"devOnly"</c>/<c>"yes"</c>,
+/// and still accepts a legacy JSON boolean (<c>true</c>→<see cref="RequiredLevel.Yes"/>, <c>false</c>→
+/// <see cref="RequiredLevel.No"/>) so manifests written before the tri-state keep loading. Hand-written (manual
+/// token handling) so it stays NativeAOT-safe.
+/// </summary>
+public sealed class RequiredLevelConverter : JsonConverter<RequiredLevel>
+{
+    public override RequiredLevel Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType switch
+        {
+            JsonTokenType.True => RequiredLevel.Yes,
+            JsonTokenType.False => RequiredLevel.No,
+            JsonTokenType.String when TryParse(reader.GetString(), out var l) => l,
+            _ => throw new JsonException("`required` must be \"yes\", \"devOnly\", \"no\", or a legacy bool."),
+        };
+
+    public override void Write(Utf8JsonWriter writer, RequiredLevel value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(ToWire(value));
+
+    /// <summary>Canonical wire form.</summary>
+    public static string ToWire(RequiredLevel v) => v switch
+    {
+        RequiredLevel.Yes => "yes",
+        RequiredLevel.DevOnly => "devOnly",
+        _ => "no",
+    };
+
+    /// <summary>Lenient parse (case-insensitive; accepts legacy <c>true</c>/<c>false</c>). Also used by the CLI flag.</summary>
+    public static bool TryParse(string? s, out RequiredLevel level)
+    {
+        switch ((s ?? "").Trim().ToLowerInvariant())
+        {
+            case "yes": case "true": case "required": level = RequiredLevel.Yes; return true;
+            case "devonly": case "dev-only": case "dev": level = RequiredLevel.DevOnly; return true;
+            case "no": case "false": case "": case "optional": level = RequiredLevel.No; return true;
+            default: level = RequiredLevel.No; return false;
+        }
+    }
+}
+
 /// <summary>The manifest schema (FORMAT.md §4). A single variable's metadata.</summary>
 public sealed class ManifestVar
 {
     [JsonPropertyName("key")] public string Key { get; set; } = "";
     [JsonPropertyName("category")] public string Category { get; set; } = "Uncategorized";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
-    [JsonPropertyName("required")] public bool Required { get; set; }
+    [JsonPropertyName("required")][JsonConverter(typeof(RequiredLevelConverter))] public RequiredLevel Required { get; set; }
     [JsonPropertyName("secret")] public bool Secret { get; set; } = true;
     [JsonPropertyName("platforms")] public List<string> Platforms { get; set; } = new();
     [JsonPropertyName("profiles")] public List<string> Profiles { get; set; } = new();
@@ -21,6 +74,11 @@ public sealed class ManifestVar
     /// <summary>Per-developer value (own LLM key, local model, identity…). `vault set` targets the gitignored
     /// personal.enc by default, and it's never committed to the shared vault.</summary>
     [JsonPropertyName("personal")] public bool Personal { get; set; }
+
+    /// <summary>True when this var must be present for local dev (a <c>vault check</c> failure if unset): both
+    /// <see cref="RequiredLevel.Yes"/> and <see cref="RequiredLevel.DevOnly"/>. Cloud-deploy checks look at
+    /// <see cref="RequiredLevel.Yes"/> only.</summary>
+    [JsonIgnore] public bool RequiredForDev => Required is RequiredLevel.Yes or RequiredLevel.DevOnly;
 
     public bool AppliesTo(string platform, string profile) =>
         (Platforms.Count == 0 || Platforms.Contains(platform)) &&

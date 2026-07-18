@@ -8,7 +8,7 @@ public sealed class VarReport
     [JsonPropertyName("key")] public string Key { get; set; } = "";
     [JsonPropertyName("category")] public string Category { get; set; } = "";
     [JsonPropertyName("description")] public string Description { get; set; } = "";
-    [JsonPropertyName("required")] public bool Required { get; set; }
+    [JsonPropertyName("required")] public string Required { get; set; } = "no";
     [JsonPropertyName("secret")] public bool Secret { get; set; }
     [JsonPropertyName("personal")] public bool Personal { get; set; }
     [JsonPropertyName("state")] public string State { get; set; } = "";

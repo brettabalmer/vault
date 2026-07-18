@@ -182,7 +182,12 @@ public static class Program
         grid.AddRow("[grey]key[/]", $"[bold]{Markup.Escape(v.Key)}[/]");
         grid.AddRow("[grey]category[/]", Markup.Escape(v.Category));
         grid.AddRow("[grey]description[/]", Markup.Escape(v.Description));
-        grid.AddRow("[grey]required[/]", v.Required ? "[yellow]yes[/]" : "no");
+        grid.AddRow("[grey]required[/]", v.Required switch
+        {
+            RequiredLevel.Yes => "[yellow]yes[/]",
+            RequiredLevel.DevOnly => "[yellow]devOnly[/] [grey](local dev only — not checked in cloud)[/]",
+            _ => "no",
+        });
         grid.AddRow("[grey]secret[/]", v.Secret ? "yes" : "no");
         grid.AddRow("[grey]personal[/]", v.Personal ? "[blue]yes — per-developer (personal.enc, not committed)[/]" : "no (shared)");
         grid.AddRow("[grey]platforms[/]", Markup.Escape(string.Join(", ", v.Platforms)));
@@ -319,7 +324,7 @@ public static class Program
         var reports = items.Select(s => new VarReport
         {
             Key = s.Var.Key, Category = s.Var.Category, Description = s.Var.Description,
-            Required = s.Var.Required, Secret = s.Var.Secret, Personal = s.Var.Personal, State = s.State.ToString(),
+            Required = RequiredLevelConverter.ToWire(s.Var.Required), Secret = s.Var.Secret, Personal = s.Var.Personal, State = s.State.ToString(),
             Platforms = s.Var.Platforms, Example = s.Var.Example, Source = s.Var.Source,
         }).ToList();
         Console.WriteLine(JsonSerializer.Serialize(reports, JsonOutputContext.Default.ListVarReport));

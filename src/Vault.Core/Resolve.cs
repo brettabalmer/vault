@@ -60,7 +60,7 @@ public static class Resolve
             }
             else
             {
-                list.Add(new VarStatus(v, v.Required ? VarState.MissingRequired : VarState.MissingOptional, null, false));
+                list.Add(new VarStatus(v, v.RequiredForDev ? VarState.MissingRequired : VarState.MissingOptional, null, false));
             }
         }
         return list;
